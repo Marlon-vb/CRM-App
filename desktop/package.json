@@ -9,7 +9,8 @@
     "start": "electron .",
     "rebuild": "electron-rebuild",
     "dist": "npm --prefix ../app run build && electron-builder",
-    "dist:universal": "npm --prefix ../app run build && electron-builder --mac --universal"
+    "dist:universal": "npm --prefix ../app run build && electron-builder --mac --universal",
+    "import-pipewise": "ELECTRON_RUN_AS_NODE=1 electron scripts/import-pipewise.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",

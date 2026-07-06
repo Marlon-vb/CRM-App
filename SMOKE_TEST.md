@@ -80,8 +80,13 @@ then:
 
 ```bash
 cp ~/path/to/pipewise/CRM/data/pipewise.db /tmp/pipewise-copy.db   # belt & braces
-node desktop/scripts/import-pipewise.js /tmp/pipewise-copy.db
+npm --prefix desktop run import-pipewise /tmp/pipewise-copy.db
 ```
+
+The npm script runs the importer under **Electron's** Node
+(`ELECTRON_RUN_AS_NODE`), matching the ABI `npm run rebuild` compiled
+better-sqlite3 for — plain `node desktop/scripts/import-pipewise.js` fails
+with a NODE_MODULE_VERSION mismatch after the Electron rebuild, by design.
 
 Expected: every deal lands as a client (lost → archived, per-deal cadence
 from stage defaults or your overrides, contact emails carried over), todos
