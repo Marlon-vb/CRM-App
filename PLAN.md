@@ -60,6 +60,13 @@ Decided with Marlon on 2026-07-06:
 
 ## Known deferred items
 
+- **Contact/DM detection tier** (asked 2026-07-06): suggest DM chats with
+  people from client companies and attach them to the client's deal. Blocked
+  on the one-Telegram-chat-per-relationship schema — needs a
+  `relationship_chats` table (multi-chat) so a client can carry its group
+  room AND per-person DMs; the queue's reply/cold logic would then reduce
+  over all of a client's chats. Do together with the Phase 3 importer or as
+  its own phase.
 - Send-from-phone via a Mac-executed outbox (v2 of Phase 5).
 - Granola transcripts (`?include=transcript`) for richer extraction.
 - Recap false-positive when the outbound reply is older than the 5-message

@@ -52,11 +52,13 @@ module.exports = {
   set_telegram_chat_id:       relationships.set_telegram_chat_id,
 
   // ── suggestions ─────────────────────────────────────────────────
-  insert_suggestion:     suggestions.insert_suggestion,
-  list_suggestions:      suggestions.list_suggestions,
-  get_suggestion:        suggestions.get_suggestion,
-  set_suggestion_status: suggestions.set_suggestion_status,
-  list_active_groups:    suggestions.list_active_groups,
+  insert_suggestion:           suggestions.insert_suggestion,
+  list_suggestions:            suggestions.list_suggestions,
+  get_suggestion:              suggestions.get_suggestion,
+  set_suggestion_status:       suggestions.set_suggestion_status,
+  list_active_groups:          suggestions.list_active_groups,
+  taken_client_names:          suggestions.taken_client_names,
+  suggest_from_unmatched_notes: suggestions.suggest_from_unmatched_notes,
 
   // ── todos ───────────────────────────────────────────────────────
   list_todos:             todos.list_todos,
@@ -67,9 +69,10 @@ module.exports = {
   upsert_extracted_todos: todos.upsert_extracted_todos,
 
   // ── notes ───────────────────────────────────────────────────────
-  list_synced_notes:   notes.list_synced_notes,
-  get_note_by_id:      notes.get_note_by_id,
-  upsert_synced_notes: notes.upsert_synced_notes,
+  list_synced_notes:       notes.list_synced_notes,
+  get_note_by_id:          notes.get_note_by_id,
+  upsert_synced_notes:     notes.upsert_synced_notes,
+  rematch_unmatched_notes: notes.rematch_unmatched_notes,
 
   // ── follow-up engine ────────────────────────────────────────────
   list_fu_snoozes:    followups.list_snoozes,

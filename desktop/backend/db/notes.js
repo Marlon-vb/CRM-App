@@ -183,9 +183,57 @@ function upsert_synced_notes(notes) {
   return { synced: notes.length, new: newCount, matched: matched };
 }
 
+// Re-run matching for notes that never found a relationship — called after
+// a relationship is created (manually or from an accepted suggestion) so a
+// new client's past meetings link up immediately instead of waiting for the
+// next Granola sync. Returns how many notes got linked.
+function rematch_unmatched_notes() {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT * FROM notes WHERE relationship_id IS NULL")
+    .all();
+  if (rows.length === 0) return 0;
+
+  // Same matching context as upsert_synced_notes.
+  const relationships = db
+    .prepare("SELECT id, name, company, contact_emails FROM relationships")
+    .all();
+  const emailToRelationship = {};
+  for (const r of relationships) {
+    let emails;
+    try {
+      emails = JSON.parse(r.contact_emails || "[]");
+    } catch (e) {
+      emails = [];
+    }
+    if (!Array.isArray(emails)) continue;
+    for (const em of emails) {
+      const key = String(em || "").trim().toLowerCase();
+      if (key && !(key in emailToRelationship)) emailToRelationship[key] = r.id;
+    }
+  }
+
+  const upd = db.prepare(
+    "UPDATE notes SET relationship_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  );
+  let linked = 0;
+  for (const row of rows) {
+    const note = _note_row_to_dict(row);
+    const relationshipId = _match_note_to_relationship(
+      note, emailToRelationship, relationships
+    );
+    if (relationshipId) {
+      upd.run(relationshipId, row.id);
+      linked += 1;
+    }
+  }
+  return linked;
+}
+
 module.exports = {
   _note_row_to_dict,
   list_synced_notes,
   get_note_by_id,
   upsert_synced_notes,
+  rematch_unmatched_notes,
 };

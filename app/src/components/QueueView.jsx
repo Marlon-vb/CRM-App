@@ -489,7 +489,7 @@ const QueueViewInner = ({
           <div style={{ marginTop: "var(--space-4)", paddingTop: "var(--space-3)", borderTop: "1px solid var(--border-subtle)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", padding: "var(--space-1) var(--space-2) var(--space-1-5)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--telegram)" }} />
-              <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.13em", color: "var(--telegram)" }}>New conversations</span>
+              <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.13em", color: "var(--telegram)" }}>Suggested clients</span>
               <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>{suggestions.length}</span>
             </div>
             {suggestions.map((s) => (
@@ -500,11 +500,12 @@ const QueueViewInner = ({
                     <span style={{ display: "block", fontSize: "var(--font-base)", fontWeight: 600, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {s.suggestedName || s.telegramGroup}
                     </span>
-                    {s.messageCount != null && (
-                      <span style={{ display: "block", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)", marginTop: 1 }}>
-                        {s.messageCount} message{s.messageCount === 1 ? "" : "s"}
-                      </span>
-                    )}
+                    <span style={{ display: "block", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {s.source === "granola"
+                        ? "via Granola"
+                        : (s.telegramGroup && s.telegramGroup !== s.suggestedName ? s.telegramGroup : "via Telegram")}
+                      {s.messageCount != null ? ` · ${s.messageCount} message${s.messageCount === 1 ? "" : "s"}` : ""}
+                    </span>
                   </span>
                 </div>
                 {s.firstMessage && (

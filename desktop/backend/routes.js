@@ -192,6 +192,8 @@ function sweepIfBound(body) {
 app.post("/api/relationships", wrap((req, res) => {
   const relationship = db.create_relationship(req.body || {});
   sweepIfBound(req.body);
+  // A new client may claim previously unmatched Granola meetings.
+  db.rematch_unmatched_notes();
   res.status(201).json(relationship);
 }));
 
@@ -325,7 +327,10 @@ app.get("/api/notes", wrap((req, res) => {
 
 app.post("/api/notes/sync", wrap(async (req, res) => {
   const notes = await granola.fetch_recent_notes(30, 40);
-  res.json(db.upsert_synced_notes(notes));
+  const result = db.upsert_synced_notes(notes);
+  // Unmatched meetings → new-client suggestions (Queue rail block).
+  const suggested = db.suggest_from_unmatched_notes(settings.getUserProfile());
+  res.json({ ...result, suggested: suggested.length });
 }));
 
 // ── Follow-up engine (the Queue) ───────────────────────────────────
@@ -442,13 +447,26 @@ app.post("/api/suggestions/:id/accept", wrap((req, res) => {
   if (!suggestion || suggestion.status !== "pending") {
     throw new HttpError(404, "Suggestion not found or already actioned");
   }
-  const relationship = db.create_relationship({
-    name: suggestion.suggestedName || suggestion.telegramGroup,
-    telegramGroup: suggestion.telegramGroup,
-    telegramChatId: suggestion.telegramChatId,
-  });
+  // Source-aware payload: telegram suggestions carry the chat binding,
+  // granola ones carry a company (binding happens later — manually or via
+  // the sweep's name-convention tier once a matching room exists).
+  const relationship = db.create_relationship(
+    suggestion.source === "granola"
+      ? {
+          name: suggestion.suggestedName || suggestion.company,
+          company: suggestion.company || suggestion.suggestedName,
+        }
+      : {
+          name: suggestion.suggestedName || suggestion.telegramGroup,
+          telegramGroup: suggestion.telegramGroup,
+          telegramChatId: suggestion.telegramChatId,
+        }
+  );
   db.set_suggestion_status(suggestion.id, "accepted");
   sweepIfBound({ telegramGroup: suggestion.telegramGroup, telegramChatId: suggestion.telegramChatId });
+  // The new client may claim previously unmatched Granola meetings (for
+  // granola-sourced accepts that's the whole point).
+  db.rematch_unmatched_notes();
   res.status(201).json(relationship);
 }));
 

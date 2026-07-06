@@ -43,9 +43,13 @@ Supabase sync) is planned — see `PLAN.md`.
 ### Clients
 - A flat list of tracked relationships: Telegram binding, last-touch age,
   per-client cadence, archive/unarchive. No stages, no amounts, no funnel.
-- **New-conversation detection** — the Telegram sweep spots fresh first-touch
-  conversations (EN/NL/DE intent patterns) and suggests tracking them;
-  one click creates the relationship.
+- **Client detection** — three signals feed the "Suggested clients" block:
+  Telegram rooms named on the `YourCompany <> Client` convention (either
+  order, any size — the company comes from your Settings profile); fresh
+  first-touch conversations (EN/NL/DE intent patterns); and Granola meetings
+  that match no tracked client (via the same title convention or attendee
+  email domains). One click tracks or dismisses; accepting also links the
+  client's past meetings.
 
 ### How data flows
 The backend owns a **30-minute Telegram sweep** (plus on-demand): last 10

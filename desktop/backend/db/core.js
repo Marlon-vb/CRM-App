@@ -193,23 +193,31 @@ const SCHEMA_SQL = `
               UNIQUE(user_id, relationship_id, text)
             );
 
-            -- New-conversation suggestions from the sweep's unknown-dialog
-            -- scan. Lifecycle: pending → accepted (becomes a relationship)
-            -- | dismissed (suppressed from future sweeps). The UNIQUE on
-            -- (telegram_group, status) is load-bearing dedupe — the sweep
-            -- inserts with ON CONFLICT DO NOTHING.
+            -- New-client suggestions. Two sources feed this table:
+            --   'telegram' — the sweep's unknown-dialog scan (the
+            --     "<company> <> X" room-name convention + first-touch intent)
+            --   'granola'  — unmatched meetings (title convention or
+            --     attendee email domains)
+            -- Lifecycle: pending → accepted (becomes a relationship) |
+            -- dismissed (suppressed from future scans). dedupe_ref keys the
+            -- UNIQUE: raw group name for telegram rows,
+            -- 'granola:<normalized name>' for granola rows — inserts use
+            -- ON CONFLICT DO NOTHING, so re-scans are idempotent.
             CREATE TABLE IF NOT EXISTS suggestions (
               id                INTEGER PRIMARY KEY AUTOINCREMENT,
               user_id           INTEGER NOT NULL DEFAULT 1,
-              telegram_group    TEXT NOT NULL,
+              source            TEXT NOT NULL DEFAULT 'telegram',
+              telegram_group    TEXT,
               telegram_chat_id  TEXT,
               suggested_name    TEXT,
+              company           TEXT,
               first_message     TEXT,
               message_count     INTEGER,
+              dedupe_ref        TEXT NOT NULL,
               status            TEXT NOT NULL DEFAULT 'pending',
               created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
               updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE(telegram_group, status)
+              UNIQUE(dedupe_ref, status)
             );
 
             CREATE TABLE IF NOT EXISTS _meta (
@@ -263,17 +271,62 @@ function _ensure_user_id_columns() {
   }
 }
 
-// For any telegram_group with both a 'pending' AND a 'dismissed' suggestion,
+// Suggestions v1 → v2: add source/company/dedupe_ref and move the UNIQUE
+// from (telegram_group, status) to (dedupe_ref, status) so Granola-sourced
+// suggestions (no group) dedupe too. SQLite can't alter constraints, so
+// this is a rename → recreate → copy → drop rebuild. Idempotent: keyed on
+// the dedupe_ref column existing. Existing rows are all telegram-sourced.
+function _ensure_suggestions_v2() {
+  const db = getDb();
+  const cols = new Set(db.pragma("table_info(suggestions)").map((r) => r.name));
+  if (cols.has("dedupe_ref")) return;
+  console.log("[DB]   migrating suggestions → v2 (source + dedupe_ref)");
+  db.exec(`
+    BEGIN;
+    ALTER TABLE suggestions RENAME TO suggestions_v1;
+    CREATE TABLE suggestions (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id           INTEGER NOT NULL DEFAULT 1,
+      source            TEXT NOT NULL DEFAULT 'telegram',
+      telegram_group    TEXT,
+      telegram_chat_id  TEXT,
+      suggested_name    TEXT,
+      company           TEXT,
+      first_message     TEXT,
+      message_count     INTEGER,
+      dedupe_ref        TEXT NOT NULL,
+      status            TEXT NOT NULL DEFAULT 'pending',
+      created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(dedupe_ref, status)
+    );
+    INSERT INTO suggestions (id, user_id, source, telegram_group,
+                             telegram_chat_id, suggested_name, company,
+                             first_message, message_count, dedupe_ref,
+                             status, created_at, updated_at)
+      SELECT id, user_id, 'telegram', telegram_group, telegram_chat_id,
+             suggested_name, NULL, first_message, message_count,
+             telegram_group, status, created_at, updated_at
+        FROM suggestions_v1;
+    DROP TABLE suggestions_v1;
+    COMMIT;
+  `);
+  // Indexes are dropped with the old table — recreate.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_suggestions_user ON suggestions(user_id)");
+}
+
+// For any dedupe_ref with both a 'pending' AND a 'dismissed' suggestion,
 // delete the pending one. The dismissed entry wins (the user already said
-// no) — and the pair would otherwise trip UNIQUE(telegram_group, status)
+// no) — and the pair would otherwise trip UNIQUE(dedupe_ref, status)
 // on the next status change. Idempotent.
 function _dedupe_dismissed_duplicates() {
   const info = getDb()
     .prepare(
       `DELETE FROM suggestions
         WHERE status = 'pending'
-          AND telegram_group IN (
-              SELECT telegram_group FROM suggestions WHERE status = 'dismissed'
+          AND dedupe_ref IN (
+              SELECT dedupe_ref FROM suggestions WHERE status = 'dismissed'
           )`
     )
     .run();
@@ -296,6 +349,7 @@ function _init_db() {
 
   // Additive column migrations go here as the schema evolves — same
   // pattern as PipeWise: check pragma table_info, ALTER only when missing.
+  _ensure_suggestions_v2();
   _dedupe_dismissed_duplicates();
 }
 

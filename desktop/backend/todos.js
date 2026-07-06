@@ -474,6 +474,9 @@ function _validate_and_map_notes(raw_todos, notes) {
 async function _extract_from_granola(existing_todos) {
   try {
     db.upsert_synced_notes(await granola.fetch_recent_notes(30, 40));
+    // Meetings that matched no tracked client are potential NEW clients —
+    // surface them as suggestions (title convention / attendee domains).
+    db.suggest_from_unmatched_notes(settings.getUserProfile());
   } catch (e) {
     console.log(`[todos] Granola note sync failed: ${e.message}`);
   }

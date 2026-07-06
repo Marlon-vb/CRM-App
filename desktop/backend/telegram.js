@@ -658,7 +658,50 @@ async function _scan_for_new_conversations(dialogs, known, myId, progress = null
     if (d.isChannel && !d.isGroup) continue; // skip broadcast channels
     candidates.push(d);
   }
-  const bounded = candidates.slice(0, 60);
+
+  // Pass 1 — deal-room naming convention. Any untracked dialog titled
+  // "<company> <> X" (either order) is a client room by construction: no
+  // message-count limit, no intent phrases, no per-dialog API calls — the
+  // title IS the signal. Company comes from the Settings profile, so this
+  // tier is off until one is set (never hardcoded — the PipeWise 'keyrock'
+  // trap). Counterparties that already exist as relationships (by name or
+  // company, bound or not) are skipped so accepted clients don't re-appear.
+  const conventionMatched = new Set();
+  const profileCompany = (settings.getUserProfile().company || "").trim();
+  if (profileCompany) {
+    let takenNames;
+    try {
+      takenNames = db.taken_client_names();
+    } catch (e) {
+      takenNames = new Set();
+    }
+    for (const d of candidates) {
+      const counterparty = detection.parse_pair_title(d.name, profileCompany);
+      if (!counterparty) continue;
+      conventionMatched.add(d); // convention rooms never need the intent scan
+      const norm = detection.normalize_name(counterparty);
+      if (norm.length < 2 || takenNames.has(norm)) continue;
+      try {
+        const dict = db.insert_suggestion({
+          telegramGroup: d.name,
+          telegramChatId: _idNum(d.id),
+          suggestedName: counterparty,
+          firstMessage: `Room name matches "${profileCompany} <> …"`,
+          messageCount: null,
+        });
+        if (!dict) continue; // deduped by UNIQUE(dedupe_ref, status)
+        suggestionsAdded.push(dict);
+        takenNames.add(norm);
+        console.log(`[suggest] deal-room name candidate: ${d.name}`);
+      } catch (dbErr) {
+        console.log(`[suggest] write failed for ${d.name}: ${dbErr.message}`);
+      }
+    }
+  }
+
+  // Pass 2 — first-touch intent scan over what's left, bounded because each
+  // candidate costs a getMessages round-trip.
+  const bounded = candidates.filter((d) => !conventionMatched.has(d)).slice(0, 60);
   // Tell the caller how many work units this phase adds so the progress bar's
   // denominator covers the whole sweep, not just the tracked-chat phase.
   if (progress && typeof progress.onTotal === "function") progress.onTotal(bounded.length);

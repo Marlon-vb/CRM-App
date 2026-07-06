@@ -84,6 +84,17 @@ Known carried-over quirk: recap detection only sees the 5 cached messages,
 so an outbound older than the cache window can false-positive a recap card
 (snooze mitigates; documented in PLAN.md).
 
+**Suggestions are dual-source and keyed by `dedupe_ref`.** `suggestions.source`
+is 'telegram' (room-name convention + first-touch intent) or 'granola'
+(unmatched meetings). The UNIQUE is `(dedupe_ref, status)` — raw group name
+for telegram rows, `granola:<normalized name>` for granola rows. The
+`<company> <> X` convention tier reads the company from
+`settings.getUserProfile()` — NEVER hardcode it (the PipeWise 'keyrock'
+trap). Cross-source repeats are suppressed via `taken_client_names()`
+(relationship names+companies plus pending/dismissed suggestions) — new
+scanners must consult it. Accepting (and any relationship create) calls
+`rematch_unmatched_notes()` so past Granola meetings link immediately.
+
 **No cadences table.** Per-relationship cadence lives in
 `relationships.cadence_days` (default 14, CHECK 1–365). PipeWise's
 stage-based defaults and `followup_cadences` table are gone. `set_cadence`
