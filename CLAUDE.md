@@ -157,11 +157,27 @@ substitute `settings.getUserProfile()` into every prompt. Hardcoding a
 persona is a regression. Model id comes from `config.HAIKU_MODEL` — don't
 re-declare per module.
 
+**Cloud publish (Phase 4) — pull-then-push, hub-keyed, no SDK.**
+`cloud.js` is direct-REST GoTrue/PostgREST (the PipeWise persistSession
+lesson — don't reintroduce supabase-js; everything network goes through
+`cloud._fetch`, the stub seam). The five `cloud*` session settings move in
+lockstep — `_persistSession` is the only writer. `publisher.js` cycles
+PULL (apply phone edits: todo flips, snoozes with `cleared` tombstones,
+promise resolutions) → queue rebuild → PUSH (upserts on
+`(user_id, local_id)` — the Mac is the only id-minter, no cloud_id
+adoption dance; stale snoozes tombstoned, stale queue items deleted).
+The pull cursor (`_meta.cloud_pull_cursor`) advances ONLY from pulled
+rows, so our own pushes (which touch every row's `updated_at`) cause one
+harmless re-pull next cycle instead of ever skipping a phone edit.
+Local SQLite timestamps are UTC without a zone marker — always compare
+via `_toIso` or LWW inverts on non-UTC Macs. Triggers: post-sweep,
+mutation middleware (`_PUBLISH_PATH_RE` in routes.js — extend it when
+adding tables the phone sees), 5-min interval, manual. `deleted` todos
+sync as tombstones via a raw query — `list_todos` hides them.
+
 ## Roadmap pointers
 
-Phases 3–6 (PipeWise importer, Supabase cloud publish, Expo iPhone app,
-hardening) are specified in `PLAN.md`. Phase 4 notes: `followup_promises`
-will need `naturalKeyCols (user_id, relationship_id, text)` and snoozes
-`(user_id, item_key)` per the PipeWise natural-key trap; the sweep's
-`set_telegram_last_activity` bumping `updated_at` will make the sweeping Mac
-win LWW conflicts — revisit then.
+Phases 5–6 (Expo iPhone app, hardening) are specified in `PLAN.md`. The
+phone reads `cadence_queue_items.payload` (the full queue item JSON incl.
+`activeChatId` for tg:// deep links) and writes only the fields the
+publisher pulls: todos completed/starred/my_day, snoozes, promise status.

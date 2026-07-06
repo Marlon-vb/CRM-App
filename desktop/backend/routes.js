@@ -31,6 +31,8 @@ const drafting = require("./drafting");
 const todosMod = require("./todos");
 const granola = require("./granola");
 const followups = require("./followups");
+const cloud = require("./cloud");
+const publisher = require("./publisher");
 
 // ── helpers ────────────────────────────────────────────────────────
 
@@ -125,6 +127,22 @@ app.use((req, res, next) => {
 // they're the app shell, not data.
 app.use("/api", auth.requireToken);
 
+// ── cloud publish trigger ──────────────────────────────────────────
+// Any successful local mutation that changes what the phone sees kicks a
+// debounced publish (publisher no-ops when signed out / disabled). Reads,
+// drafts, and sends are excluded — they don't change published state
+// (the sweep cycle publishes after sends refresh activity anyway).
+const _PUBLISH_PATH_RE = /^\/api\/(todos|followups|relationships|suggestions)(\/|$)/;
+app.use((req, res, next) => {
+  if (!["POST", "PATCH", "DELETE"].includes(req.method)) return next();
+  if (!_PUBLISH_PATH_RE.test(req.path)) return next();
+  if (/\/(draft-reply|send-message|draft-recap)$/.test(req.path)) return next();
+  res.on("finish", () => {
+    if (res.statusCode >= 200 && res.statusCode < 300) publisher.publishSoon();
+  });
+  next();
+});
+
 // ══════════════════════════════════════════════════════════════════
 // Routes
 // ══════════════════════════════════════════════════════════════════
@@ -132,6 +150,44 @@ app.use("/api", auth.requireToken);
 // ── Health ─────────────────────────────────────────────────────────
 
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+
+// ── Cloud publish (Phase 4 — the iPhone reads what this pushes) ─────
+
+app.get("/api/cloud/status", wrap((req, res) => {
+  res.json(publisher.status());
+}));
+
+app.post("/api/cloud/signin", wrap(async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) throw new HttpError(400, "email and password are required");
+  const result = await cloud.signIn(email.trim(), password);
+  publisher.publishSoon(); // first publish right after sign-in
+  res.json({ ...result, ...publisher.status() });
+}));
+
+app.post("/api/cloud/signup", wrap(async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) throw new HttpError(400, "email and password are required");
+  const result = await cloud.signUp(email.trim(), password);
+  if (result.signedIn) publisher.publishSoon();
+  res.json({ ...result, ...publisher.status() });
+}));
+
+app.post("/api/cloud/signout", wrap(async (req, res) => {
+  await cloud.signOut();
+  res.json(publisher.status());
+}));
+
+app.post("/api/cloud/sync", wrap(async (req, res) => {
+  res.json(await publisher.syncNow("manual"));
+}));
+
+app.post("/api/cloud/toggle", wrap((req, res) => {
+  const enabled = Boolean((req.body || {}).enabled);
+  settings.set({ cloudSyncEnabled: enabled ? "1" : "0" });
+  if (enabled) publisher.publishSoon();
+  res.json(publisher.status());
+}));
 
 // ── Setup / per-user configuration ─────────────────────────────────
 
@@ -546,6 +602,12 @@ function printEndpointList() {
   console.log("Endpoints:");
   const rows = [
     ["GET", "/api/health", "health check"],
+    ["GET", "/api/cloud/status", "cloud publish status (signed in / last sync)"],
+    ["POST", "/api/cloud/signin", "sign in to Cadence Cloud"],
+    ["POST", "/api/cloud/signup", "create a Cadence Cloud account"],
+    ["POST", "/api/cloud/signout", "sign out (stops publishing)"],
+    ["POST", "/api/cloud/sync", "sync now (pull phone edits + republish)"],
+    ["POST", "/api/cloud/toggle", "pause/resume publishing"],
     ["GET", "/api/setup/status", "what's configured (telegram/keys/profile)"],
     ["POST", "/api/setup/keys", "save API keys / Telegram app creds / profile"],
     ["POST", "/api/setup/telegram/send-code", "start Telegram login"],

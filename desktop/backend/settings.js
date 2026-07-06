@@ -39,6 +39,18 @@ const FIELDS = [
   "userName",
   "userCompany",
   "userRole",
+  // Cloud publish (Phase 4). The five session fields move in LOCKSTEP —
+  // cloud.js _persistSession is the only writer; both the proactive
+  // refresh and the reactive retry depend on all five being set together
+  // (the PipeWise trap). cloudUrl/cloudAnonKey override cloud-defaults.js.
+  "cloudUrl",
+  "cloudAnonKey",
+  "cloudAccessToken",
+  "cloudRefreshToken",
+  "cloudExpiresAt",
+  "cloudUserId",
+  "cloudUserEmail",
+  "cloudSyncEnabled",
 ];
 
 const STORE_FILE = path.join(DATA_DIR, "cadence-settings.dat");
@@ -94,6 +106,8 @@ const _SECRET_FIELDS = [
   "granolaKey",
   "telegramApiHash",
   "telegramSession",
+  "cloudAccessToken",
+  "cloudRefreshToken",
 ];
 
 const _hasSecrets = (data) => _SECRET_FIELDS.some((f) => data[f]);
@@ -202,6 +216,14 @@ function status() {
     userName: d.userName || "",
     userCompany: d.userCompany || "",
     userRole: d.userRole || "",
+    cloud: {
+      signedIn: Boolean(d.cloudAccessToken && d.cloudRefreshToken && d.cloudUserId),
+      email: d.cloudUserEmail || "",
+      // Empty string defaults to ENABLED (the PipeWise trap: a legacy
+      // install that signed in before this field existed must not silently
+      // lose sync) — only the explicit "0" disables.
+      enabled: (d.cloudSyncEnabled || "") !== "0",
+    },
   };
 }
 

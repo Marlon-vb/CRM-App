@@ -54,7 +54,7 @@ Decided with Marlon on 2026-07-06:
 | **1 — Engine port** ✅ this session | followups/todos/granola/telegram/drafting/detection + routes + scheduled sweep | Sandbox: live server + curl round-trips, stubbed-queue harness; then Mac smoke test |
 | **2 — Mac frontend** ✅ this session | Thin shell + Queue, Todos, Clients, Settings, Onboarding | vite build + jsdom render smoke; then Mac smoke test |
 | **3 — Importer** ✅ shipped | `desktop/scripts/import-pipewise.js`: deals→relationships (stage→cadence, contacts→emails, lost→archived), todos incl. tombstones (byte-stable source_refs), notes, promises; guarded + idempotent re-runs | Run against a **copy** of the real DB on the Mac |
-| **4 — Cloud publish** | Supabase schema (relationships, todos, notes, snoozes, promises, queue_items) + RLS; Mac publishes computed queue post-sweep; snoozes/completions sync back | Two-account isolation + round-trip |
+| **4 — Cloud publish** ✅ shipped | `cadence_*` Supabase schema + RLS (coexists with PipeWise's project); direct-REST auth (no SDK); pull-then-push publisher (phone edits absorbed before the queue rebuild, tombstoned snoozes, stale queue items deleted); Settings → Cadence Cloud UI | Marlon: run `cloud/supabase-schema.sql` once, sign in, verify "synced Xs ago" |
 | **5 — iPhone (Expo)** | Login, realtime Queue + Todos, snooze/complete, `tg://` deep links, copy-draft | TestFlight on Marlon's phone |
 | **6 — Hardening** | Push notifications, Mac menu-bar/background mode, docs | Full regression |
 

@@ -104,7 +104,19 @@ alive. Relaunch — the first sweep binds the chats. Re-running without
    queue card should flip to reply-owed with the DM's messages, and Send
    should land **in the DM**, not the group. ☑
 
-## F — If something fails
+## F — Cloud publish (Phase 4)
+
+1. Run `cloud/supabase-schema.sql` once in your Supabase project's SQL
+   editor (details: `cloud/CLOUD_SETUP.md`). ☑
+2. Settings → Cadence Cloud → sign in with your PipeWise cloud account →
+   within seconds the section reads "synced Xs ago". ☑
+3. In the Supabase dashboard Table Editor: `cadence_queue_items` mirrors
+   your Queue (one row per card, payload carries the whole item);
+   `cadence_todos` has your todo count; snooze something on the Mac →
+   Sync now → the row appears in `cadence_snoozes`. ☑
+4. Pause / Resume toggles publishing; Sign out stops it. ☑
+
+## G — If something fails
 
 - **Backend logs**: launch from a terminal (`./dev_launch.command`) and read
   stdout — the dev API token prints as `[auth] API token (dev): …`, sweep

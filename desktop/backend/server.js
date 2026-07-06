@@ -28,6 +28,7 @@ const todos = require("./todos");
 const followups = require("./followups");
 const drafting = require("./drafting");
 const granola = require("./granola");
+const publisher = require("./publisher");
 const { app, printEndpointList } = require("./routes");
 
 // ── background sweep loop ──────────────────────────────────────────
@@ -92,6 +93,10 @@ async function _runSweepCycle(reason) {
       console.error(`[promises] post-sweep extraction failed: ${e.message}`);
     }
   }
+
+  // Cloud publish — the phone's queue goes stale the moment a sweep lands,
+  // so every completed cycle pushes. No-ops when signed out / disabled.
+  publisher.publishSoon();
 }
 
 // Warm start → initial sweep if stale → steady-state timer. The initial
@@ -173,6 +178,11 @@ async function startup() {
   // The backend-owned Telegram rhythm: warm start, initial sweep if stale,
   // then the 30-minute timer. This is what makes Cadence proactive.
   _startSweepLoop();
+
+  // Cloud publish steady-state: the 5-min interval pulls phone edits even
+  // when the Mac is idle. The publisher no-ops each tick unless signed in
+  // AND enabled, so this is safe to start unconditionally.
+  publisher.startInterval();
 }
 
 // Start the backend: run startup, then listen. Resolves with the http.Server
@@ -218,6 +228,7 @@ async function shutdown() {
     clearInterval(_sweepTimer);
     _sweepTimer = null;
   }
+  publisher.stopInterval();
   try {
     await telegram.shutdown();
   } catch (e) {

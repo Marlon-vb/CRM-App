@@ -59,6 +59,13 @@ Supabase sync) is planned — see `PLAN.md`.
   email domains). One click tracks or dismisses; accepting also links the
   client's past meetings.
 
+### Cadence Cloud (optional — the iPhone bridge)
+- Sign in once (Settings → Cadence Cloud) and the Mac publishes the
+  computed queue, todos, promises, and snoozes to your Supabase project
+  after every sweep; actions taken on the phone flow back on the next
+  sync. Setup: [`cloud/CLOUD_SETUP.md`](cloud/CLOUD_SETUP.md).
+- Telegram session and API keys **never** leave the Mac.
+
 ### How data flows
 The backend owns a **30-minute Telegram sweep** (plus on-demand): last 10
 messages per tracked chat, who-spoke-last, last-activity timestamps, and a

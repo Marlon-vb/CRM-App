@@ -332,6 +332,56 @@ export const api = {
     if (!r.ok && r.status !== 204) throw new Error(`POST /api/suggestions/${id}/dismiss → ${r.status}`);
   },
 
+  /* ── Cloud publish (Phase 4 — feeds the iPhone app) ── */
+  async cloudStatus() {
+    const r = await apiFetch("/api/cloud/status");
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `GET /api/cloud/status → ${r.status}`);
+    return data;
+  },
+  async cloudSignIn(email, password) {
+    const r = await apiFetch("/api/cloud/signin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `sign in → ${r.status}`);
+    return data;
+  },
+  async cloudSignUp(email, password) {
+    const r = await apiFetch("/api/cloud/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `sign up → ${r.status}`);
+    return data;
+  },
+  async cloudSignOut() {
+    const r = await apiFetch("/api/cloud/signout", { method: "POST" });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `sign out → ${r.status}`);
+    return data;
+  },
+  async cloudSyncNow() {
+    const r = await apiFetch("/api/cloud/sync", { method: "POST" });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `sync → ${r.status}`);
+    return data;
+  },
+  async cloudToggle(enabled) {
+    const r = await apiFetch("/api/cloud/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `toggle → ${r.status}`);
+    return data;
+  },
+
   /* ── Setup / per-user configuration ── */
   async getSetupStatus() {
     const r = await apiFetch("/api/setup/status");

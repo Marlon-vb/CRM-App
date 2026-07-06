@@ -1,15 +1,14 @@
 import { useState, useEffect } from "react";
 import { api } from "../lib/api";
+import { timeAgo } from "../lib/utils";
 
 /* ── Cadence Settings — per-user setup ───────────────────────────────
    Connect your own Telegram account and AI keys. Everything is stored
-   encrypted on this Mac; nothing routes through anyone else.
+   encrypted on this Mac; nothing routes through anyone else — except the
+   optional Cadence Cloud section (Phase 4), which publishes the computed
+   queue + todos to YOUR Supabase project for the iPhone app.
    The two exported pieces (TelegramConnect, KeyField) are reused by the
-   first-run onboarding flow.
-
-   Ported from PipeWise Settings.jsx, trimmed per BUILD_SPEC: no Cloud
-   Sync section (cloud publish is Phase 4 — the section returns with it),
-   no revenue target, no watched-groups remnants. */
+   first-run onboarding flow. */
 
 const inputCls = "w-full border rounded-md px-2.5 py-1.5 text-sm";
 const inputStyle = {
@@ -329,6 +328,108 @@ export function TelegramConnect({ connected, onChanged }) {
   );
 }
 
+/* Cloud publish (Phase 4) — sign in once and the Mac mirrors the computed
+   queue + todos to Supabase after every sweep, ready for the iPhone app.
+   The phone's actions (complete / snooze / resolve) flow back on the next
+   sync. Telegram session and API keys never leave this Mac. */
+function CloudSection({ showToast }) {
+  const [cloud, setCloud] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const reload = async () => {
+    try { setCloud(await api.cloudStatus()); } catch (e) { setError(e.message); }
+  };
+  useEffect(() => { reload(); }, []);
+
+  const run = async (fn, okMsg) => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await fn();
+      await reload();
+      if (okMsg && showToast) showToast(okMsg);
+      return result;
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!cloud) return <p style={{ fontSize: "var(--font-md)", color: "var(--text-muted)" }}>Loading…</p>;
+
+  if (!cloud.signedIn) {
+    return (
+      <div className="space-y-2">
+        <input
+          type="email" value={email} placeholder="you@company.com" autoComplete="username"
+          onChange={(e) => setEmail(e.target.value)} style={inputStyle}
+        />
+        <input
+          type="password" value={password} placeholder="Password" autoComplete="current-password"
+          onChange={(e) => setPassword(e.target.value)} style={inputStyle}
+        />
+        <div className="flex items-center" style={{ gap: "var(--space-2)" }}>
+          <button
+            className={primaryBtn} style={primaryStyle} disabled={busy || !email || !password}
+            onClick={() => run(() => api.cloudSignIn(email.trim(), password), "Signed in — first publish is on its way")}
+          >
+            {busy ? "Working…" : "Sign in"}
+          </button>
+          <button
+            className={ghostBtn} style={ghostStyle} disabled={busy || !email || !password}
+            onClick={() => run(async () => {
+              const r = await api.cloudSignUp(email.trim(), password);
+              if (r.confirmationRequired) setNotice("Check your inbox — confirm the email, then sign in here.");
+              return r;
+            }, null)}
+          >
+            Create account
+          </button>
+        </div>
+        {notice && <p style={{ fontSize: "var(--font-sm)", color: "var(--text-muted)" }}>{notice}</p>}
+        {error && <p style={{ fontSize: "var(--font-sm)", color: "var(--danger-soft)" }}>{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center" style={{ gap: "var(--space-2)", fontSize: "var(--font-base)", color: "var(--text-secondary)" }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: cloud.enabled ? "var(--success)" : "var(--text-faint)", flexShrink: 0 }} />
+        <span style={{ fontWeight: 600, color: "var(--text)" }}>{cloud.email}</span>
+        <span style={{ color: "var(--text-faint)" }}>
+          {cloud.enabled ? (cloud.lastSyncAt ? `synced ${timeAgo(cloud.lastSyncAt)}` : "waiting for first sync") : "publishing paused"}
+        </span>
+      </div>
+      {cloud.lastError && (
+        <p style={{ fontSize: "var(--font-sm)", color: "var(--danger-soft)" }}>
+          Last sync failed: {cloud.lastError}
+        </p>
+      )}
+      <div className="flex items-center" style={{ gap: "var(--space-2)" }}>
+        <button className={primaryBtn} style={primaryStyle} disabled={busy || !cloud.enabled}
+          onClick={() => run(() => api.cloudSyncNow(), "Synced")}>
+          {busy ? "Syncing…" : "Sync now"}
+        </button>
+        <button className={ghostBtn} style={ghostStyle} disabled={busy}
+          onClick={() => run(() => api.cloudToggle(!cloud.enabled), cloud.enabled ? "Publishing paused" : "Publishing resumed")}>
+          {cloud.enabled ? "Pause" : "Resume"}
+        </button>
+        <button className={ghostBtn} style={ghostStyle} disabled={busy}
+          onClick={() => run(() => api.cloudSignOut(), "Signed out")}>
+          Sign out
+        </button>
+      </div>
+      {error && <p style={{ fontSize: "var(--font-sm)", color: "var(--danger-soft)" }}>{error}</p>}
+    </div>
+  );
+}
+
 export default function Settings({ showToast, onProfileSaved }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
@@ -421,6 +522,12 @@ export default function Settings({ showToast, onProfileSaved }) {
                 await reload();
               }}
             />
+          </Section>
+          <Section
+            title="Cadence Cloud"
+            desc="Publishes your queue and todos to your Supabase project after every sweep — the feed the iPhone app reads. Your Telegram session and API keys stay on this Mac."
+          >
+            <CloudSection showToast={showToast} />
           </Section>
         </>
       )}
