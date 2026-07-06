@@ -54,3 +54,7 @@ Thumbs.db
 
 # ─── Electron-builder cache ──────────────────────────────────────────
 desktop/dist/
+
+# ─── Mobile (Expo) ───────────────────────────────────────────────────
+mobile/.expo/
+mobile/dist/

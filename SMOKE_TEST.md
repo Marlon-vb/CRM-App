@@ -116,7 +116,20 @@ alive. Relaunch — the first sweep binds the chats. Re-running without
    Sync now → the row appears in `cadence_snoozes`. ☑
 4. Pause / Resume toggles publishing; Sign out stops it. ☑
 
-## G — If something fails
+## G — iPhone (Expo Go)
+
+1. iPhone: install **Expo Go** from the App Store. Mac:
+   `cd mobile && npm install && npx expo start` → scan the QR with the
+   camera (same Wi-Fi; `--tunnel` if blocked). ☑
+2. First launch: paste the Supabase project URL + anon key (same as the
+   Mac), then sign in with the same email/password. ☑
+3. Queue mirrors the Mac's; pull-to-refresh works; **Open in Telegram**
+   lands in the right chat (supergroups precise, DMs best-effort). ☑
+4. Snooze a card on the phone → within ~5 min the Mac's sync applies it
+   and the card leaves the Mac's queue too. Complete a todo on the phone →
+   same. ☑
+
+## H — If something fails
 
 - **Backend logs**: launch from a terminal (`./dev_launch.command`) and read
   stdout — the dev API token prints as `[auth] API token (dev): …`, sweep
