@@ -339,6 +339,11 @@ function CloudSection({ showToast }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // "Use a different project" form — the escape hatch when the bundled
+  // default project is gone (deleted) or you want your own.
+  const [showProject, setShowProject] = useState(false);
+  const [projUrl, setProjUrl] = useState("");
+  const [projKey, setProjKey] = useState("");
 
   const reload = async () => {
     try { setCloud(await api.cloudStatus()); } catch (e) { setError(e.message); }
@@ -362,9 +367,52 @@ function CloudSection({ showToast }) {
 
   if (!cloud) return <p style={{ fontSize: "var(--font-md)", color: "var(--text-muted)" }}>Loading…</p>;
 
+  const projectHost = cloud.projectUrl ? cloud.projectUrl.replace(/^https:\/\//, "") : "no project configured";
+
+  const projectForm = (
+    <div className="space-y-2" style={{ paddingTop: "var(--space-1)" }}>
+      <input
+        value={projUrl} placeholder="https://<your-ref>.supabase.co"
+        onChange={(e) => setProjUrl(e.target.value)} style={inputStyle}
+      />
+      <input
+        value={projKey} placeholder="anon public key (Supabase → Settings → API)"
+        onChange={(e) => setProjKey(e.target.value)} style={inputStyle}
+      />
+      <div className="flex items-center" style={{ gap: "var(--space-2)" }}>
+        <button
+          className={primaryBtn} style={primaryStyle} disabled={busy || !projUrl || !projKey}
+          onClick={() => run(async () => {
+            const r = await api.cloudConfig(projUrl.trim(), projKey.trim());
+            setShowProject(false); setProjUrl(""); setProjKey("");
+            return r;
+          }, "Project saved — run the schema there, then sign in")}
+        >
+          {busy ? "Checking…" : "Save project"}
+        </button>
+        <button className={ghostBtn} style={ghostStyle} disabled={busy} onClick={() => setShowProject(false)}>
+          Cancel
+        </button>
+      </div>
+      <p style={{ fontSize: "var(--font-sm)", color: "var(--text-faint)" }}>
+        The URL is validated live before saving. Remember to run
+        cloud/supabase-schema.sql in that project's SQL editor once.
+      </p>
+    </div>
+  );
+
   if (!cloud.signedIn) {
     return (
       <div className="space-y-2">
+        <p style={{ fontSize: "var(--font-sm)", color: "var(--text-faint)", fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace" }}>
+          Project: {projectHost}
+          {" · "}
+          <button onClick={() => setShowProject((v) => !v)} disabled={busy}
+            style={{ border: "none", background: "none", cursor: "pointer", color: "var(--brand)", padding: 0, font: "inherit" }}>
+            {showProject ? "keep this one" : "use a different project"}
+          </button>
+        </p>
+        {showProject && projectForm}
         <input
           type="email" value={email} placeholder="you@company.com" autoComplete="username"
           onChange={(e) => setEmail(e.target.value)} style={inputStyle}

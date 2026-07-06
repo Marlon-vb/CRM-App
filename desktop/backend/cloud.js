@@ -179,11 +179,55 @@ function userId() {
   return settings.get("cloudUserId") || null;
 }
 
+/* Validate a project URL + anon key by hitting GoTrue's public health
+   endpoint. Throws with a friendly message on any failure — this is what
+   stands between the user and "sign-in mysteriously network-errors"
+   after pointing at a dead or mistyped project. */
+async function testConfig(url, anonKey) {
+  const clean = String(url || "").trim().replace(/\/+$/, "");
+  const key = String(anonKey || "").trim();
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(clean)) {
+    throw _svc(400, "That doesn't look like a Supabase project URL (https://<ref>.supabase.co).");
+  }
+  if (!key) throw _svc(400, "The anon key is required (Supabase → Settings → API).");
+  let r;
+  try {
+    r = await module.exports._fetch(`${clean}/auth/v1/health`, {
+      headers: { apikey: key },
+    });
+  } catch (e) {
+    throw _svc(502, `Could not reach ${clean} — deleted project, typo, or no network.`);
+  }
+  if (!r.ok) {
+    throw _svc(r.status, `Project responded ${r.status} — check the URL and anon key.`);
+  }
+  return { url: clean, anonKey: key };
+}
+
+/* Persist a project override (empty strings reset to the bundled
+   defaults). Any change invalidates the session — tokens are per-project. */
+async function setConfig(url, anonKey) {
+  if (!url && !anonKey) {
+    settings.set({ cloudUrl: "", cloudAnonKey: "" });
+    _clearSession();
+    return status();
+  }
+  const valid = await testConfig(url, anonKey);
+  settings.set({ cloudUrl: valid.url, cloudAnonKey: valid.anonKey });
+  _clearSession();
+  return status();
+}
+
 function status() {
+  const { url } = _config();
   return {
     configured: isConfigured(),
     signedIn: isSignedIn(),
     email: settings.get("cloudUserEmail") || "",
+    // Which project we're pointed at (host only — enough for the UI to
+    // show "where", and for the user to notice a dead default).
+    projectUrl: url || null,
+    usingDefaults: !(settings.get("cloudUrl") || "").trim(),
   };
 }
 
@@ -197,5 +241,7 @@ module.exports = {
   refreshSession,
   rest,
   userId,
+  testConfig,
+  setConfig,
   status,
 };

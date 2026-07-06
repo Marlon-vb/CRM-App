@@ -157,6 +157,14 @@ app.get("/api/cloud/status", wrap((req, res) => {
   res.json(publisher.status());
 }));
 
+app.post("/api/cloud/config", wrap(async (req, res) => {
+  const { url, anonKey } = req.body || {};
+  // Validates against the project's health endpoint before persisting;
+  // empty url+key resets to the bundled defaults. Either way the session
+  // clears — auth tokens are per-project.
+  res.json(await cloud.setConfig(url, anonKey));
+}));
+
 app.post("/api/cloud/signin", wrap(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) throw new HttpError(400, "email and password are required");
@@ -603,6 +611,7 @@ function printEndpointList() {
   const rows = [
     ["GET", "/api/health", "health check"],
     ["GET", "/api/cloud/status", "cloud publish status (signed in / last sync)"],
+    ["POST", "/api/cloud/config", "point at a different Supabase project"],
     ["POST", "/api/cloud/signin", "sign in to Cadence Cloud"],
     ["POST", "/api/cloud/signup", "create a Cadence Cloud account"],
     ["POST", "/api/cloud/signout", "sign out (stops publishing)"],

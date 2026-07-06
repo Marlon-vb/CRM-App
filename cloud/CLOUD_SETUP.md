@@ -6,30 +6,34 @@ project; the phone reads them and its actions (complete / snooze / resolve)
 flow back on the next sync. **Your Telegram session, Anthropic key, and
 Granola key never leave the Mac.**
 
-## 1. Apply the schema (once)
+## 1. Have a Supabase project
 
-Cadence ships pointed at the same Supabase project as PipeWise — the
-tables are `cadence_`-prefixed, so the two apps coexist without touching
-each other's data, and your existing PipeWise account signs straight in.
+Cadence ships pointed at the old PipeWise project as a default — if that
+project still exists in your [dashboard](https://supabase.com/dashboard),
+skip to step 2. If it's gone (or you want a fresh one):
 
-1. Open your project at [supabase.com/dashboard](https://supabase.com/dashboard)
-   (project `oslmpcsfqkqsmjhcylgb` unless you overrode it).
-2. SQL Editor → New query → paste the whole of
-   [`cloud/supabase-schema.sql`](./supabase-schema.sql) → Run.
-3. It's idempotent — re-running after a schema update is safe.
+1. Dashboard → **New project** (free tier is plenty) → any name/region →
+   wait ~1 min for provisioning.
+2. Project **Settings → API** → copy the **Project URL** and the
+   **anon public** key.
+3. In Cadence: Settings → Cadence Cloud → **use a different project** →
+   paste both → Save. The URL is validated live before it persists, and
+   any previous session is cleared (auth accounts are per-project).
 
-## 2. Sign in
+## 2. Apply the schema (once per project)
 
-Settings → **Cadence Cloud** → your PipeWise cloud email + password (or
-Create account). The first publish fires seconds later; the section shows
-"synced Xs ago" once it lands, or the exact error if it didn't.
+SQL Editor → New query → paste the whole of
+[`cloud/supabase-schema.sql`](./supabase-schema.sql) → Run. Idempotent —
+re-running after a schema update is safe. The tables are all
+`cadence_`-prefixed, so they coexist with PipeWise's in a shared project.
 
-## Using a different Supabase project
+## 3. Sign in
 
-Create a project, run the schema there, then set `cloudUrl` and
-`cloudAnonKey` in the settings store (no UI yet — `POST /api/setup/keys`
-won't take them; use the dev console or ask for the Settings field).
-Overrides always win over the bundled defaults.
+Settings → **Cadence Cloud** → email + password. On a fresh project use
+**Create account** (accounts live inside the project — a deleted project
+took its users with it). If Supabase's email confirmation is on, confirm
+from your inbox, then sign in. The first publish fires seconds later; the
+section shows "synced Xs ago" once it lands, or the exact error if not.
 
 ## Security model
 

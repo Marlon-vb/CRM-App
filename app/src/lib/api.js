@@ -339,6 +339,16 @@ export const api = {
     if (!r.ok) throw new Error(data?.error || `GET /api/cloud/status → ${r.status}`);
     return data;
   },
+  async cloudConfig(url, anonKey) {
+    const r = await apiFetch("/api/cloud/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, anonKey }),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `cloud config → ${r.status}`);
+    return data;
+  },
   async cloudSignIn(email, password) {
     const r = await apiFetch("/api/cloud/signin", {
       method: "POST",
