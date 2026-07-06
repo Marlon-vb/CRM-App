@@ -229,6 +229,12 @@ function build_queue({ telegramData = {} } = {}) {
       // One-line "what was last discussed" from telegram.js's summary
       // generator — gives cold/promise cards context without an LLM call.
       actionSummary: tg && tg.matched ? tg.action_summary || null : null,
+      // Multi-chat: WHICH of the relationship's chats spoke last (the sweep
+      // aggregate's active chat) — drafts and sends target it, so a reply
+      // owed in a DM goes back to that DM, not the group room.
+      activeChatId: tg && tg.matched ? tg.activeChatId ?? tg.chat_id ?? null : null,
+      activeChatName: tg && tg.matched ? tg.activeChatName ?? tg.chat_name ?? null : null,
+      chatCount: tg && tg.matched ? tg.chatCount ?? 1 : 0,
       bundle,
     };
 

@@ -73,7 +73,33 @@ Landing on the Queue tab afterwards: onboarding passes. ☑
 11. **Warm restart** — quit and relaunch: the Queue should populate
     immediately from the cached sweep, no blank screen. ☑
 
-## D — If something fails
+## D — Import your PipeWise book (Phase 3)
+
+Quit Cadence first (two writers on one SQLite file is asking for trouble),
+then:
+
+```bash
+cp ~/path/to/pipewise/CRM/data/pipewise.db /tmp/pipewise-copy.db   # belt & braces
+node desktop/scripts/import-pipewise.js /tmp/pipewise-copy.db
+```
+
+Expected: every deal lands as a client (lost → archived, per-deal cadence
+from stage defaults or your overrides, contact emails carried over), todos
+with completion/tombstone state intact, Granola notes linked, open promises
+alive. Relaunch — the first sweep binds the chats. Re-running without
+`--force` refuses; with `--force` it matches rows instead of duplicating. ☑
+
+## E — Multi-chat + DM detection
+
+1. After a sweep, the Queue's **Suggested clients** block should offer DMs
+   whose contact name matches a tracked client ("DM · attach to Acme") —
+   accepting links the DM to that client (visible as an `@` chip on the
+   Clients row; `×` unlinks). ☑
+2. Have the DM person message you while the group is quiet → the client's
+   queue card should flip to reply-owed with the DM's messages, and Send
+   should land **in the DM**, not the group. ☑
+
+## F — If something fails
 
 - **Backend logs**: launch from a terminal (`./dev_launch.command`) and read
   stdout — the dev API token prints as `[auth] API token (dev): …`, sweep

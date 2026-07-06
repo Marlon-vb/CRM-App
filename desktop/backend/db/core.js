@@ -220,12 +220,32 @@ const SCHEMA_SQL = `
               UNIQUE(dedupe_ref, status)
             );
 
+            -- Additional Telegram chats linked to a relationship beyond its
+            -- primary binding (the telegram_* columns on relationships):
+            -- per-person DMs, side rooms. The sweep walks primary + these,
+            -- and the queue engine sees one AGGREGATED conversation per
+            -- relationship (newest chat wins for waiting_on/messages,
+            -- max(last_activity) for cold detection).
+            CREATE TABLE IF NOT EXISTS relationship_chats (
+              id                INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id           INTEGER NOT NULL DEFAULT 1,
+              relationship_id   INTEGER NOT NULL REFERENCES relationships(id) ON DELETE CASCADE,
+              kind              TEXT NOT NULL DEFAULT 'group',  -- group | dm
+              telegram_group    TEXT,
+              telegram_chat_id  TEXT,
+              contact_name      TEXT,
+              last_activity     TEXT,
+              created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS _meta (
               key   TEXT PRIMARY KEY,
               value TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_relationships_archived ON relationships(archived_at);
+            CREATE INDEX IF NOT EXISTS idx_relationship_chats_rel ON relationship_chats(relationship_id);
             CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
             CREATE INDEX IF NOT EXISTS idx_todos_completed ON todos(completed);
             CREATE INDEX IF NOT EXISTS idx_todos_deleted ON todos(deleted);
@@ -350,7 +370,20 @@ function _init_db() {
   // Additive column migrations go here as the schema evolves — same
   // pattern as PipeWise: check pragma table_info, ALTER only when missing.
   _ensure_suggestions_v2();
+  _ensure_suggestion_attach_column();
   _dedupe_dismissed_duplicates();
+}
+
+// Attach-flavored suggestions ("this DM looks like client X — link it?")
+// carry the target relationship id; accept attaches a relationship_chat
+// instead of creating a new relationship. Additive, nullable.
+function _ensure_suggestion_attach_column() {
+  const db = getDb();
+  const cols = new Set(db.pragma("table_info(suggestions)").map((r) => r.name));
+  if (!cols.has("attach_relationship_id")) {
+    db.exec("ALTER TABLE suggestions ADD COLUMN attach_relationship_id INTEGER");
+    console.log("[DB]   added attach_relationship_id to suggestions");
+  }
 }
 
 // ── _meta key/value helpers ────────────────────────────────────────

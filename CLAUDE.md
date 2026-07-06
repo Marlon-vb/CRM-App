@@ -66,6 +66,19 @@ prefix keeps the id keyspace disjoint from group names — keep it. Lookups are
 fine; anything that ITERATES the map must dedupe by `chat.relationship_id`
 or it double-counts. `build_queue` binds by group name — the load-bearing key.
 
+**Multi-chat clients aggregate at sweep time — the queue engine never
+changed.** A relationship has ONE primary binding (the `telegram_*` columns)
+plus any `relationship_chats` rows (DMs, side rooms; CASCADE on delete).
+The sweep reads every chat, then `_aggregate_rel_chats` collapses them:
+the chat with the newest message speaks for the relationship (its
+messages/waiting_on), so "reply owed" = "the newest event across ALL the
+client's chats is an inbound". `activeChatId/Name` ride the queue item and
+target drafts + sends (`body.chatId`) — a reply owed in a DM answers into
+that DM. Per-chat `last_activity` writes back to the chat's own row;
+`build_queue`'s unmatched fallback still reads only the relationship-level
+column. DM detection (attach-flavored suggestions,
+`attach_relationship_id`) links chats to EXISTING clients on accept.
+
 **Chat identity: chat_id first, fuzzy name second, self-healing.**
 `relationships.telegram_chat_id` is TEXT (GramJS bigints via `_idNum`,
 Number → String). Matchers try chat_id, fall back to name (exact lowercase →

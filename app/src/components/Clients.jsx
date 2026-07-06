@@ -103,9 +103,15 @@ const CadenceStepper = ({ value, busy, onSet }) => (
   </div>
 );
 
-const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete }) => {
+const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete, onUnlinkChat }) => {
   const archived = Boolean(rel.archivedAt);
-  const lastActivity = rel.telegramChat?.lastActivity;
+  // Newest activity across the primary binding AND linked chats (DMs, side
+  // rooms) — a client whose group is quiet but whose DM is live isn't stale.
+  const lastActivity = [rel.telegramChat?.lastActivity, ...(rel.chats || []).map((c) => c.lastActivity)]
+    .filter(Boolean)
+    .sort()
+    .pop() || null;
+  const linkedChats = rel.chats || [];
   return (
     <div
       className="flex items-center"
@@ -129,6 +135,41 @@ const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete }
         <div style={{ fontSize: "var(--font-sm)", color: "var(--text-muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {rel.company || <span style={{ fontStyle: "italic", color: "var(--text-faint)" }}>No company</span>}
         </div>
+        {/* Linked chats beyond the primary binding — DMs with the client's
+            people, side rooms. Unlink is instant; the sweep just stops
+            reading that chat. */}
+        {linkedChats.length > 0 && (
+          <div className="flex items-center" style={{ gap: "var(--space-1)", marginTop: "var(--space-1)", flexWrap: "wrap" }}>
+            {linkedChats.map((c) => (
+              <span
+                key={c.id}
+                title={`${c.kind === "dm" ? "Direct chat" : "Linked group"}: ${c.contactName || c.group || `chat ${c.chatId}`}`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: "var(--space-1)",
+                  padding: "1px var(--space-1-5)",
+                  borderRadius: "var(--radius-pill)",
+                  fontSize: "var(--font-xs)", fontFamily: MONO,
+                  background: "var(--surface-3)", color: "var(--text-secondary)",
+                  maxWidth: 170,
+                }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {c.kind === "dm" ? "@" : "#"} {c.contactName || c.group || c.chatId}
+                </span>
+                {!archived && (
+                  <button
+                    title="Unlink this chat"
+                    disabled={busy}
+                    onClick={() => onUnlinkChat(rel, c)}
+                    style={{ border: "none", background: "none", cursor: "pointer", color: "var(--text-faint)", padding: 0, lineHeight: 1 }}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {/* Last touch — stamped by the sweep and the send route. "—" until the
           first sweep matches this chat. */}
@@ -220,11 +261,19 @@ export const Clients = ({ relationships = [], refetch, showToast }) => {
     run(rel.id, () => api.deleteRelationship(rel.id), `${rel.name} deleted`);
   };
 
+  const handleUnlinkChat = (rel, chat) =>
+    run(
+      rel.id,
+      () => api.removeRelationshipChat(rel.id, chat.id),
+      `Unlinked ${chat.contactName || chat.group || "chat"} from ${rel.name}`
+    );
+
   const rowProps = {
     onSetCadence: handleSetCadence,
     onArchive: handleArchive,
     onUnarchive: handleUnarchive,
     onDelete: handleDelete,
+    onUnlinkChat: handleUnlinkChat,
   };
 
   return (

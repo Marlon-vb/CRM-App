@@ -50,6 +50,11 @@ module.exports = {
   delete_relationship:        relationships.delete_relationship,
   set_telegram_last_activity: relationships.set_telegram_last_activity,
   set_telegram_chat_id:       relationships.set_telegram_chat_id,
+  list_relationship_chats:    relationships.list_relationship_chats,
+  add_relationship_chat:      relationships.add_relationship_chat,
+  remove_relationship_chat:   relationships.remove_relationship_chat,
+  set_chat_last_activity:     relationships.set_chat_last_activity,
+  set_chat_chat_id:           relationships.set_chat_chat_id,
 
   // ── suggestions ─────────────────────────────────────────────────
   insert_suggestion:           suggestions.insert_suggestion,

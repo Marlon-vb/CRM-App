@@ -162,13 +162,16 @@ const QueueViewInner = ({
     const key = item.key;
     if (draftsRef.current[key]?.loading) return;
     setDrafts((d) => ({ ...d, [key]: { text: "", loading: true } }));
+    // Drafts target the item's active chat (multi-chat: the DM or room the
+    // reply is actually owed in), not blindly the primary binding.
+    const chatTarget = item.activeChatId != null ? { chatId: item.activeChatId } : {};
     const load = item.kind === "recap"
       ? api.draftRecap(item.noteId).then((r) => r.draft)
       : api.draftReply(item.relationshipId, item.kind === "cold"
-          ? { instructions: "The conversation has gone quiet — write a warm re-opener referencing where things left off." }
+          ? { ...chatTarget, instructions: "The conversation has gone quiet — write a warm re-opener referencing where things left off." }
           : item.kind === "promise"
-            ? { instructions: `Deliver on this open promise: "${(item.bundle.find(b => b.type === "promise") || {}).label || ""}". Apologize briefly for the delay.` }
-            : {}).then((r) => r.draft);
+            ? { ...chatTarget, instructions: `Deliver on this open promise: "${(item.bundle.find(b => b.type === "promise") || {}).label || ""}". Apologize briefly for the delay.` }
+            : chatTarget).then((r) => r.draft);
     load
       .then((text) => setDrafts((d) => ({ ...d, [key]: { text, loading: false } })))
       .catch((err) => setDrafts((d) => ({
@@ -224,7 +227,7 @@ const QueueViewInner = ({
     clearTimeout(p.timer);
     if (updateLocal) setSendState({ phase: "sending", key: p.itemKey });
     try {
-      await api.sendMessage(p.relationshipId, p.text);
+      await api.sendMessage(p.relationshipId, p.text, p.chatId ?? null);
       await clearBundle({ bundle: p.bundle });
       const n = (p.bundle || []).length;
       showToast?.(n > 0 ? `Sent — cleared ${n + 1} items` : "Sent · logged to timeline");
@@ -265,6 +268,7 @@ const QueueViewInner = ({
     pendingSend.current = {
       itemKey: item.key,
       relationshipId: item.relationshipId,
+      chatId: item.activeChatId ?? null,
       text,
       bundle: item.bundle || [],
       timer,
@@ -333,7 +337,11 @@ const QueueViewInner = ({
     try {
       await api.acceptSuggestion(s.id);
       setSuggestions((list) => list.filter((x) => x.id !== s.id));
-      showToast?.(`Now tracking ${s.suggestedName || s.telegramGroup}`);
+      showToast?.(
+        s.attachRelationshipId != null
+          ? `Linked ${s.suggestedName || "chat"} to ${s.company || "client"}`
+          : `Now tracking ${s.suggestedName || s.telegramGroup}`
+      );
       refetch();
       // The accept created a relationship — App must refresh its
       // relationships/suggestions state or the new client is invisible on
@@ -501,7 +509,9 @@ const QueueViewInner = ({
                       {s.suggestedName || s.telegramGroup}
                     </span>
                     <span style={{ display: "block", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {s.source === "granola"
+                      {s.attachRelationshipId != null
+                        ? `DM · attach to ${s.company || "client"}`
+                        : s.source === "granola"
                         ? "via Granola"
                         : (s.telegramGroup && s.telegramGroup !== s.suggestedName ? s.telegramGroup : "via Telegram")}
                       {s.messageCount != null ? ` · ${s.messageCount} message${s.messageCount === 1 ? "" : "s"}` : ""}

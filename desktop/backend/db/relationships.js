@@ -126,14 +126,14 @@ function list_relationships(include_archived = false) {
   const sql = include_archived
     ? "SELECT * FROM relationships ORDER BY id ASC"
     : "SELECT * FROM relationships WHERE archived_at IS NULL ORDER BY id ASC";
-  return getDb().prepare(sql).all().map(_relationship_row_to_dict);
+  return _attach_chats(getDb().prepare(sql).all().map(_relationship_row_to_dict));
 }
 
 function get_relationship(relationship_id) {
   const row = getDb()
     .prepare("SELECT * FROM relationships WHERE id = ?")
     .get(relationship_id);
-  return row ? _relationship_row_to_dict(row) : null;
+  return row ? _attach_chats([_relationship_row_to_dict(row)])[0] : null;
 }
 
 function create_relationship(body) {
@@ -223,6 +223,126 @@ function set_telegram_chat_id(relationship_id, chat_id) {
   );
 }
 
+// ── linked chats (relationship_chats) ─────────────────────────────
+// A relationship's PRIMARY chat stays on the relationships row (zero
+// behavior change for single-chat clients); these are the extras — DMs
+// with the client's people, side rooms. The sweep walks primary + these
+// and aggregates; delete of the relationship CASCADEs the rows.
+
+function _chat_row_to_dict(row) {
+  return {
+    id: row.id,
+    relationshipId: row.relationship_id,
+    kind: row.kind || "group",
+    group: row.telegram_group ?? null,
+    chatId: row.telegram_chat_id ?? null,
+    contactName: row.contact_name ?? null,
+    lastActivity: row.last_activity ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+// Batch-attach `chats` arrays onto relationship dicts (one query total).
+function _attach_chats(dicts) {
+  if (dicts.length === 0) return dicts;
+  const rows = getDb()
+    .prepare("SELECT * FROM relationship_chats ORDER BY id ASC")
+    .all();
+  const byRel = new Map();
+  for (const r of rows) {
+    const arr = byRel.get(r.relationship_id) || [];
+    arr.push(_chat_row_to_dict(r));
+    byRel.set(r.relationship_id, arr);
+  }
+  for (const d of dicts) d.chats = byRel.get(d.id) || [];
+  return dicts;
+}
+
+function list_relationship_chats(relationship_id = null) {
+  const rows =
+    relationship_id != null
+      ? getDb()
+          .prepare("SELECT * FROM relationship_chats WHERE relationship_id = ? ORDER BY id ASC")
+          .all(relationship_id)
+      : getDb().prepare("SELECT * FROM relationship_chats ORDER BY id ASC").all();
+  return rows.map(_chat_row_to_dict);
+}
+
+// Link a chat. Returns the chat dict; the existing row when this chat
+// (by chat_id, else by group name) is already linked to the relationship;
+// null when the relationship doesn't exist (routes 404 on that).
+function add_relationship_chat(relationship_id, body) {
+  const db = getDb();
+  const rel = db
+    .prepare("SELECT id FROM relationships WHERE id = ?")
+    .get(relationship_id);
+  if (!rel) return null;
+  const group = (body.telegramGroup || "").trim() || null;
+  const chatId = body.telegramChatId != null ? String(body.telegramChatId) : null;
+  if (!group && !chatId) {
+    throw new ValidationError("telegramGroup or telegramChatId is required");
+  }
+  const existing = db
+    .prepare(
+      `SELECT * FROM relationship_chats
+        WHERE relationship_id = ?
+          AND ((telegram_chat_id IS NOT NULL AND telegram_chat_id = ?)
+            OR (telegram_group IS NOT NULL AND telegram_group = ?))`
+    )
+    .get(relationship_id, chatId, group);
+  if (existing) return _chat_row_to_dict(existing);
+  const info = db
+    .prepare(
+      `INSERT INTO relationship_chats
+         (relationship_id, kind, telegram_group, telegram_chat_id, contact_name)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(
+      ..._bind([
+        relationship_id,
+        body.kind === "dm" ? "dm" : "group",
+        group,
+        chatId,
+        (body.contactName || "").trim() || null,
+      ])
+    );
+  const row = db
+    .prepare("SELECT * FROM relationship_chats WHERE id = ?")
+    .get(info.lastInsertRowid);
+  return _chat_row_to_dict(row);
+}
+
+function remove_relationship_chat(relationship_id, chat_row_id) {
+  return (
+    getDb()
+      .prepare("DELETE FROM relationship_chats WHERE id = ? AND relationship_id = ?")
+      .run(chat_row_id, relationship_id).changes > 0
+  );
+}
+
+// Per-chat write-backs, mirroring the primary binding's pair above.
+function set_chat_last_activity(chat_row_id, iso) {
+  return (
+    getDb()
+      .prepare(
+        "UPDATE relationship_chats SET last_activity = ?, " +
+          "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+      )
+      .run(iso ?? null, chat_row_id).changes > 0
+  );
+}
+
+function set_chat_chat_id(chat_row_id, chat_id) {
+  return (
+    getDb()
+      .prepare(
+        "UPDATE relationship_chats SET telegram_chat_id = ?, " +
+          "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+      )
+      .run(chat_id != null ? String(chat_id) : null, chat_row_id).changes > 0
+  );
+}
+
 module.exports = {
   _relationship_row_to_dict,
   list_relationships,
@@ -234,4 +354,9 @@ module.exports = {
   delete_relationship,
   set_telegram_last_activity,
   set_telegram_chat_id,
+  list_relationship_chats,
+  add_relationship_chat,
+  remove_relationship_chat,
+  set_chat_last_activity,
+  set_chat_chat_id,
 };

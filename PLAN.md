@@ -53,20 +53,19 @@ Decided with Marlon on 2026-07-06:
 | **0 — Scaffold** ✅ this session | Repo layout, Electron shell, build tooling, SQLite schema, settings/auth | Boots empty; `node --check` + vite build |
 | **1 — Engine port** ✅ this session | followups/todos/granola/telegram/drafting/detection + routes + scheduled sweep | Sandbox: live server + curl round-trips, stubbed-queue harness; then Mac smoke test |
 | **2 — Mac frontend** ✅ this session | Thin shell + Queue, Todos, Clients, Settings, Onboarding | vite build + jsdom render smoke; then Mac smoke test |
-| **3 — Importer** | One-time import from live `pipewise.db` (deals→relationships, todos, notes, promises; snoozes not imported — ephemeral) | Run against a **copy** of the real DB |
+| **3 — Importer** ✅ shipped | `desktop/scripts/import-pipewise.js`: deals→relationships (stage→cadence, contacts→emails, lost→archived), todos incl. tombstones (byte-stable source_refs), notes, promises; guarded + idempotent re-runs | Run against a **copy** of the real DB on the Mac |
 | **4 — Cloud publish** | Supabase schema (relationships, todos, notes, snoozes, promises, queue_items) + RLS; Mac publishes computed queue post-sweep; snoozes/completions sync back | Two-account isolation + round-trip |
 | **5 — iPhone (Expo)** | Login, realtime Queue + Todos, snooze/complete, `tg://` deep links, copy-draft | TestFlight on Marlon's phone |
 | **6 — Hardening** | Push notifications, Mac menu-bar/background mode, docs | Full regression |
 
 ## Known deferred items
 
-- **Contact/DM detection tier** (asked 2026-07-06): suggest DM chats with
-  people from client companies and attach them to the client's deal. Blocked
-  on the one-Telegram-chat-per-relationship schema — needs a
-  `relationship_chats` table (multi-chat) so a client can carry its group
-  room AND per-person DMs; the queue's reply/cold logic would then reduce
-  over all of a client's chats. Do together with the Phase 3 importer or as
-  its own phase.
+- ~~Contact/DM detection tier~~ ✅ shipped 2026-07-06: `relationship_chats`
+  (multi-chat per client), sweep-time aggregation (newest chat speaks for
+  the relationship), DM suggestions that attach to existing clients, and
+  chat-targeted drafts/sends. Manual "link a chat" UI is API-only for now
+  (`POST /api/relationships/:id/chats`) — the suggestion flow is the
+  primary path.
 - Send-from-phone via a Mac-executed outbox (v2 of Phase 5).
 - Granola transcripts (`?include=transcript`) for richer extraction.
 - Recap false-positive when the outbound reply is older than the 5-message

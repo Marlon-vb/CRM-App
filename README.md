@@ -43,6 +43,14 @@ Supabase sync) is planned — see `PLAN.md`.
 ### Clients
 - A flat list of tracked relationships: Telegram binding, last-touch age,
   per-client cadence, archive/unarchive. No stages, no amounts, no funnel.
+- **Multi-chat** — a client can carry its group room plus linked DMs and
+  side rooms; the queue treats them as one conversation (the newest message
+  anywhere decides who owes whom, and replies go back into the chat they
+  came from). DMs with people at tracked clients are auto-suggested for
+  linking.
+- **One-time PipeWise import** — `node desktop/scripts/import-pipewise.js
+  <path-to-pipewise.db>` brings over clients, cadences, contact emails,
+  todos, meeting notes, and open promises.
 - **Client detection** — three signals feed the "Suggested clients" block:
   Telegram rooms named on the `YourCompany <> Client` convention (either
   order, any size — the company comes from your Settings profile); fresh

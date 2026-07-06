@@ -76,6 +76,23 @@ export const api = {
     if (!r.ok) throw new Error(data?.error || `unarchive → ${r.status}`);
     return data;
   },
+  async addRelationshipChat(relationshipId, body) {
+    const r = await apiFetch(`/api/relationships/${relationshipId}/chats`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `link chat → ${r.status}`);
+    return data;
+  },
+  async removeRelationshipChat(relationshipId, chatRowId) {
+    const r = await apiFetch(`/api/relationships/${relationshipId}/chats/${chatRowId}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 204) {
+      const data = await r.json().catch(() => null);
+      throw new Error(data?.error || `unlink chat → ${r.status}`);
+    }
+  },
   async draftReply(relationshipId, body = {}) {
     const r = await apiFetch(`/api/relationships/${relationshipId}/draft-reply`, {
       method: "POST",
@@ -91,11 +108,13 @@ export const api = {
     }
     return data;
   },
-  async sendMessage(relationshipId, text) {
+  // chatId (optional) targets a specific chat — the queue item's
+  // activeChatId, so a reply owed in a linked DM sends into that DM.
+  async sendMessage(relationshipId, text, chatId = null) {
     const r = await apiFetch(`/api/relationships/${relationshipId}/send-message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(chatId != null ? { text, chatId } : { text }),
     });
     const data = await r.json().catch(() => null);
     if (!r.ok) {

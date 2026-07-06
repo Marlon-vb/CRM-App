@@ -699,9 +699,59 @@ async function _scan_for_new_conversations(dialogs, known, myId, progress = null
     }
   }
 
+  // Pass 1.5 — DMs with people at tracked clients. A user-dialog whose
+  // title (the saved contact name) contains a non-archived client's company
+  // or name becomes an ATTACH suggestion: accepting links the DM to that
+  // client (relationship_chats) instead of creating a new one, so the
+  // queue's reply/cold logic sees the person and the group room as one
+  // conversation. Name-only, no message fetches — free like pass 1.
+  let clientNorms = [];
+  try {
+    clientNorms = db
+      .list_relationships()
+      .map((r) => ({
+        rel: r,
+        norms: [detection.normalize_name(r.company), detection.normalize_name(r.name)]
+          .filter((n) => n.length >= 4),
+      }))
+      .filter((c) => c.norms.length > 0);
+  } catch (e) {
+    clientNorms = [];
+  }
+  const dmMatched = new Set();
+  if (clientNorms.length) {
+    for (const d of candidates) {
+      if (conventionMatched.has(d)) continue;
+      if (!d.isUser) continue; // groups are covered by passes 1 and 2
+      const titleNorm = detection.normalize_name(d.name);
+      if (titleNorm.length < 4) continue;
+      const hit = clientNorms.find((c) => c.norms.some((n) => titleNorm.includes(n)));
+      if (!hit) continue;
+      dmMatched.add(d);
+      try {
+        const dict = db.insert_suggestion({
+          telegramGroup: d.name,
+          telegramChatId: _idNum(d.id),
+          suggestedName: _clean_chat_name(d.name),
+          company: hit.rel.name,
+          attachRelationshipId: hit.rel.id,
+          firstMessage: `Direct chat — looks like ${hit.rel.name}`,
+          messageCount: null,
+        });
+        if (!dict) continue;
+        suggestionsAdded.push(dict);
+        console.log(`[suggest] DM candidate for ${hit.rel.name}: ${d.name}`);
+      } catch (dbErr) {
+        console.log(`[suggest] write failed for ${d.name}: ${dbErr.message}`);
+      }
+    }
+  }
+
   // Pass 2 — first-touch intent scan over what's left, bounded because each
   // candidate costs a getMessages round-trip.
-  const bounded = candidates.filter((d) => !conventionMatched.has(d)).slice(0, 60);
+  const bounded = candidates
+    .filter((d) => !conventionMatched.has(d) && !dmMatched.has(d))
+    .slice(0, 60);
   // Tell the caller how many work units this phase adds so the progress bar's
   // denominator covers the whole sweep, not just the tracked-chat phase.
   if (progress && typeof progress.onTotal === "function") progress.onTotal(bounded.length);
@@ -789,6 +839,37 @@ function sweepSoon(delayMs = 3000) {
 // Returns { chats, newSuggestions } — or { alreadyRunning: true } without
 // touching the progress slot when a sweep is in flight (the route answers
 // 202 from isSweeping(); this guard closes the race).
+/* Collapse a relationship's per-chat sweep results into ONE aggregate the
+   queue engine consumes unchanged: the chat with the newest message speaks
+   for the relationship (its messages / waiting_on / action summary), so
+   "reply owed" means "the newest event across ALL the client's chats is an
+   inbound". activeChatId/Name say WHICH chat that is — drafts and sends
+   target it. The full per-chat digest rides along for richer consumers.
+   Pure function, exported for the stubbed harness. */
+function _aggregate_rel_chats(rel, perChat) {
+  const matchedAny = perChat.filter((c) => c && c.matched);
+  if (matchedAny.length === 0) {
+    return { matched: false, relationship_id: rel.id };
+  }
+  const withMsg = matchedAny
+    .filter((c) => c.last_message)
+    .sort((a, b) => new Date(b.last_message.date) - new Date(a.last_message.date));
+  const active = withMsg[0] || matchedAny[0];
+  return {
+    ...active,
+    activeChatId: active.chat_id ?? null,
+    activeChatName: active.chat_name ?? null,
+    chatCount: matchedAny.length,
+    chats: matchedAny.map((c) => ({
+      chat_id: c.chat_id,
+      chat_name: c.chat_name,
+      kind: c.source_kind || "primary",
+      last_message: c.last_message || null,
+      waiting_on: c.waiting_on || "unknown",
+    })),
+  };
+}
+
 async function sweep() {
   if (_sweeping) return { alreadyRunning: true };
   _sweeping = true;
@@ -816,60 +897,102 @@ async function sweep() {
     const dialogs = await client.getDialogs({ limit: 400 });
     const index = _index_dialogs(dialogs);
 
-    // Tracked = non-archived relationships with any Telegram binding.
-    const tracked = db.list_relationships().filter((r) => r.telegramChat);
-    _setProgress({ phase: "Reading conversations", total: tracked.length });
+    // Tracked = non-archived relationships with any Telegram surface —
+    // a primary binding on the row and/or linked relationship_chats rows.
+    const tracked = db
+      .list_relationships()
+      .filter((r) => r.telegramChat || (r.chats || []).length > 0);
+    // Progress counts CHATS, not relationships — a client with a group +
+    // two DMs is three units of work.
+    const chatUnits = tracked.reduce(
+      (n, r) => n + (r.telegramChat ? 1 : 0) + (r.chats || []).length,
+      0
+    );
+    _setProgress({ phase: "Reading conversations", total: chatUnits });
 
-    // Known-set for the phase-2 scan: every relationship's stored binding
-    // (archived included), grown below with each dialog phase 1 resolves —
-    // so a chat_id-matched dialog whose display name drifted from the
-    // stored group name still isn't re-suggested.
+    // Known-set for the phase-2 scan: every stored binding — primary AND
+    // linked chats, archived included — grown below with each dialog
+    // phase 1 resolves, so a chat_id-matched dialog whose display name
+    // drifted from the stored group name still isn't re-suggested.
     const knownNames = new Set();
     const knownChatIds = new Set();
     for (const r of db.list_relationships(true)) {
-      if (!r.telegramChat) continue;
-      if (r.telegramChat.group) knownNames.add(r.telegramChat.group.trim());
-      if (r.telegramChat.chatId) knownChatIds.add(String(r.telegramChat.chatId));
+      if (r.telegramChat) {
+        if (r.telegramChat.group) knownNames.add(r.telegramChat.group.trim());
+        if (r.telegramChat.chatId) knownChatIds.add(String(r.telegramChat.chatId));
+      }
+      for (const c of r.chats || []) {
+        if (c.group) knownNames.add(c.group.trim());
+        if (c.chatId) knownChatIds.add(String(c.chatId));
+      }
     }
 
     const chats = {};
     for (const rel of tracked) {
-      const groupName = rel.telegramChat.group || null;
-      const hit = _match_dialog(index, rel.telegramChat.chatId, groupName);
-
-      let result;
-      if (hit) {
-        const { dialog, via } = hit;
-        const id = _idNum(dialog.id);
-        if (id !== null) knownChatIds.add(String(id));
-        const dname = (dialog.name || "").trim();
-        if (dname) knownNames.add(dname);
-
-        _maybe_self_heal_chat_id(rel, dialog, via);
-
-        result = await _read_chat(client, myId, rel, dialog);
-
-        // Stamp the newest message time so "inactive for X" stays honest.
-        // (The send route stamps too — this module's only other DB write.)
-        const lastDate = result.last_message ? result.last_message.date : null;
-        if (lastDate) {
-          try {
-            db.set_telegram_last_activity(rel.id, lastDate);
-          } catch (dbErr) {
-            console.log(`[DB] write-back failed for ${rel.name}: ${dbErr.message}`);
-          }
-        }
-      } else {
-        result = { matched: false, relationship_id: rel.id };
+      // Worklist: primary binding first, then linked chats (DMs, side rooms).
+      const sources = [];
+      if (rel.telegramChat) {
+        sources.push({
+          primary: true,
+          chatId: rel.telegramChat.chatId,
+          group: rel.telegramChat.group || null,
+          kind: "primary",
+        });
+      }
+      for (const c of rel.chats || []) {
+        sources.push({ primary: false, row: c, chatId: c.chatId, group: c.group, kind: c.kind || "group" });
       }
 
-      // Dual keying (see the last-sweep cache notes above): prefixed
-      // relationship id for direct lookups, group name for the followups.js
-      // binding. Both keys point at the same object.
-      chats[`rel:${rel.id}`] = result;
-      if (groupName) chats[groupName] = result;
+      const perChat = [];
+      for (const s of sources) {
+        const hit = _match_dialog(index, s.chatId, s.group);
+        if (hit) {
+          const { dialog, via } = hit;
+          const id = _idNum(dialog.id);
+          if (id !== null) knownChatIds.add(String(id));
+          const dname = (dialog.name || "").trim();
+          if (dname) knownNames.add(dname);
 
-      _setProgress({ current: _progress.current + 1 });
+          // Self-heal chat ids after fuzzy name matches — primary on the
+          // relationship row, linked chats on their own rows.
+          if (s.primary) {
+            _maybe_self_heal_chat_id(rel, dialog, via);
+          } else if (via === "name" && s.row && !s.row.chatId && id !== null) {
+            try { db.set_chat_chat_id(s.row.id, id); } catch (e) { /* best-effort */ }
+          }
+
+          const r = await _read_chat(client, myId, rel, dialog);
+          r.source_kind = s.kind;
+          perChat.push(r);
+
+          // Stamp the newest message time so "inactive for X" stays honest.
+          // (The send route stamps too — this module's only other DB write.)
+          const lastDate = r.last_message ? r.last_message.date : null;
+          if (lastDate) {
+            try {
+              if (s.primary) db.set_telegram_last_activity(rel.id, lastDate);
+              else db.set_chat_last_activity(s.row.id, lastDate);
+            } catch (dbErr) {
+              console.log(`[DB] write-back failed for ${rel.name}: ${dbErr.message}`);
+            }
+          }
+        }
+        _setProgress({ current: _progress.current + 1 });
+      }
+
+      const result = _aggregate_rel_chats(rel, perChat);
+
+      // Keying (see the last-sweep cache notes above): prefixed relationship
+      // id for direct lookups; the PRIMARY group name for the followups.js
+      // binding; plus every matched chat's dialog name so name-based lookups
+      // for linked chats land on the same aggregate.
+      chats[`rel:${rel.id}`] = result;
+      const primaryGroup = rel.telegramChat ? rel.telegramChat.group || null : null;
+      if (primaryGroup) chats[primaryGroup] = result;
+      for (const pc of perChat) {
+        const n = (pc.chat_name || "").trim();
+        if (n && n !== primaryGroup && !(n in chats)) chats[n] = result;
+      }
     }
 
     // onTotal lets the scan grow `total` by its bounded candidate count once
@@ -919,9 +1042,23 @@ async function sweep() {
 // but none of the sweep's side effects: drafting a reply must not trigger a
 // full dialog walk + suggestion scan, and it does NOT stamp
 // telegram_last_activity (only the sweep and the send route write that).
-async function _fetch_single_chat(relationship) {
+// Resolve the target chat for drafts/sends. An explicit chatId (the queue
+// item's activeChatId — e.g. the DM where the reply is owed) wins; else the
+// primary binding; else the first linked chat.
+function _target_binding(rel, chatId) {
+  if (chatId != null) return { chatId: String(chatId), group: null };
+  if (rel.telegramChat) {
+    return { chatId: rel.telegramChat.chatId, group: rel.telegramChat.group };
+  }
+  const first = (rel.chats || [])[0];
+  if (first) return { chatId: first.chatId, group: first.group };
+  return null;
+}
+
+async function _fetch_single_chat(relationship, chatId = null) {
   const rel = relationship;
-  if (!rel || !rel.telegramChat) {
+  const target = rel ? _target_binding(rel, chatId) : null;
+  if (!target) {
     return { matched: false, relationship_id: rel ? rel.id : null };
   }
   const client = await connect();
@@ -930,10 +1067,12 @@ async function _fetch_single_chat(relationship) {
 
   const dialogs = await client.getDialogs({ limit: 400 });
   const index = _index_dialogs(dialogs);
-  const hit = _match_dialog(index, rel.telegramChat.chatId, rel.telegramChat.group);
+  const hit = _match_dialog(index, target.chatId, target.group);
   if (!hit) return { matched: false, relationship_id: rel.id };
 
-  _maybe_self_heal_chat_id(rel, hit.dialog, hit.via);
+  if (chatId == null && rel.telegramChat) {
+    _maybe_self_heal_chat_id(rel, hit.dialog, hit.via);
+  }
   return _read_chat(client, myId, rel, hit.dialog);
 }
 
@@ -944,14 +1083,15 @@ async function _fetch_single_chat(relationship) {
 // sent-message envelope; the CALLER stamps telegram_last_activity (the send
 // route does it, mirroring PipeWise — beyond the chat_id self-heal this
 // function has no DB side effects).
-async function _send_message(relationship, text) {
+async function _send_message(relationship, text, chatId = null) {
   if (!text || !text.trim()) {
     const e = new Error("Empty message");
     e.status = 400;
     throw e;
   }
   const rel = relationship;
-  if (!rel || !rel.telegramChat) {
+  const target = rel ? _target_binding(rel, chatId) : null;
+  if (!target) {
     const e = new Error("Relationship has no Telegram chat");
     e.status = 400;
     throw e;
@@ -959,14 +1099,16 @@ async function _send_message(relationship, text) {
   const client = await connect();
   const dialogs = await client.getDialogs({ limit: 400 });
   const index = _index_dialogs(dialogs);
-  const hit = _match_dialog(index, rel.telegramChat.chatId, rel.telegramChat.group);
+  const hit = _match_dialog(index, target.chatId, target.group);
   if (hit === null) {
-    const label = rel.telegramChat.group || rel.telegramChat.chatId || rel.name;
+    const label = target.group || target.chatId || rel.name;
     const e = new Error(`Could not find a Telegram chat matching '${label}'`);
     e.status = 400;
     throw e;
   }
-  _maybe_self_heal_chat_id(rel, hit.dialog, hit.via);
+  if (chatId == null && rel.telegramChat) {
+    _maybe_self_heal_chat_id(rel, hit.dialog, hit.via);
+  }
   const sent = await client.sendMessage(hit.dialog.entity, { message: text });
   return {
     chat_id: _idNum(hit.dialog.id),
@@ -991,16 +1133,20 @@ async function _fetch_recent_conversations(days = 30, perChatLimit = 60, maxChat
   const dialogs = await client.getDialogs({ limit: 400 });
   const index = _index_dialogs(dialogs);
 
-  // dialog id (TEXT) → relationship id, via the one matcher. First
-  // relationship wins when two fuzzy-match the same dialog.
+  // dialog id (TEXT) → relationship id, via the one matcher. Primary
+  // bindings AND linked chats (DMs, side rooms) both tag their client's
+  // relationship. First relationship wins when two fuzzy-match one dialog.
   const relByDialogId = {};
-  for (const rel of db.list_relationships()) {
-    if (!rel.telegramChat) continue;
-    const hit = _match_dialog(index, rel.telegramChat.chatId, rel.telegramChat.group);
-    if (!hit) continue;
+  const claim = (chatId, group, relId) => {
+    const hit = _match_dialog(index, chatId, group);
+    if (!hit) return;
     const id = _idNum(hit.dialog.id);
-    if (id === null) continue;
-    if (!(String(id) in relByDialogId)) relByDialogId[String(id)] = rel.id;
+    if (id === null) return;
+    if (!(String(id) in relByDialogId)) relByDialogId[String(id)] = relId;
+  };
+  for (const rel of db.list_relationships()) {
+    if (rel.telegramChat) claim(rel.telegramChat.chatId, rel.telegramChat.group, rel.id);
+    for (const c of rel.chats || []) claim(c.chatId, c.group, rel.id);
   }
 
   const cutoff = Date.now() / 1000 - days * 86400; // unix seconds
@@ -1086,4 +1232,5 @@ module.exports = {
   // pure helpers (exported for tests, like PipeWise)
   _generate_action_summary,
   _extract_message_meta,
+  _aggregate_rel_chats,
 };

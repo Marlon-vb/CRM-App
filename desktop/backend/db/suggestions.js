@@ -38,6 +38,9 @@ function _suggestion_row_to_dict(row) {
     company: row.company,
     firstMessage: row.first_message,
     messageCount: row.message_count,
+    // Attach flavor: accept links this chat to an existing relationship
+    // (relationship_chats) instead of creating a new one.
+    attachRelationshipId: row.attach_relationship_id ?? null,
     status: row.status,
     createdAt: row.created_at,
   };
@@ -61,8 +64,9 @@ function insert_suggestion(body) {
     .prepare(
       `INSERT INTO suggestions
          (source, telegram_group, telegram_chat_id, suggested_name,
-          company, first_message, message_count, dedupe_ref, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+          company, first_message, message_count, attach_relationship_id,
+          dedupe_ref, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
        ON CONFLICT(dedupe_ref, status) DO NOTHING`
     )
     .run(
@@ -75,6 +79,7 @@ function insert_suggestion(body) {
         (body.company || "").trim() || null,
         body.firstMessage ?? null,
         body.messageCount != null ? Math.trunc(Number(body.messageCount)) || 0 : null,
+        body.attachRelationshipId ?? null,
         dedupeRef,
       ])
     );

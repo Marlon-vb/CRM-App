@@ -221,19 +221,38 @@ app.post("/api/relationships/:id/unarchive", wrap((req, res) => {
   res.json(relationship);
 }));
 
+// ── linked chats (multi-chat per client) ───────────────────────────
+
+app.post("/api/relationships/:id/chats", wrap((req, res) => {
+  const chat = db.add_relationship_chat(idParam(req), req.body || {});
+  if (chat === null) throw new HttpError(404, "Relationship not found");
+  sweepIfBound(req.body);
+  res.status(201).json(chat);
+}));
+
+app.delete("/api/relationships/:id/chats/:chatId", wrap((req, res) => {
+  const ok = db.remove_relationship_chat(
+    idParam(req), Number(req.params.chatId)
+  );
+  if (!ok) throw new HttpError(404, "Linked chat not found");
+  res.status(204).end();
+}));
+
 app.post("/api/relationships/:id/draft-reply", wrap(async (req, res) => {
   const relationship = db.get_relationship(idParam(req));
   if (!relationship) throw new HttpError(404, "Relationship not found");
-  if (!relationship.telegramChat) {
+  if (!relationship.telegramChat && (relationship.chats || []).length === 0) {
     throw new HttpError(400, "Relationship has no Telegram chat");
   }
 
   // Pull recent messages via the single-chat fetch — NOT a full sweep:
   // drafting one reply must not trigger a dialog walk + suggestion scan.
+  // body.chatId (the queue item's activeChatId) targets the chat where the
+  // reply is actually owed — e.g. a linked DM instead of the group room.
   // Tolerate failure; the draft still works with less context.
   let chatData = { matched: false, relationship_id: relationship.id, messages: [] };
   try {
-    chatData = await telegram._fetch_single_chat(relationship);
+    chatData = await telegram._fetch_single_chat(relationship, (req.body || {}).chatId ?? null);
   } catch (fetchErr) {
     console.log(
       `[draft] message fetch failed for ${relationship.name}: ${fetchErr.message}`
@@ -257,11 +276,15 @@ app.post("/api/relationships/:id/send-message", wrap(async (req, res) => {
   if (!text) throw new HttpError(400, "Empty message");
   const relationship = db.get_relationship(idParam(req));
   if (!relationship) throw new HttpError(404, "Relationship not found");
-  if (!relationship.telegramChat) {
+  if (!relationship.telegramChat && (relationship.chats || []).length === 0) {
     throw new HttpError(400, "Relationship has no Telegram chat");
   }
 
-  const result = await telegram._send_message(relationship, text);
+  // body.chatId (queue item's activeChatId) sends into the chat the reply
+  // is owed in — a linked DM stays a DM conversation.
+  const result = await telegram._send_message(
+    relationship, text, (req.body || {}).chatId ?? null
+  );
 
   // Stamp last activity so "silent for X" stays honest. _send_message
   // deliberately doesn't write this itself — the route does, mirroring
@@ -447,6 +470,25 @@ app.post("/api/suggestions/:id/accept", wrap((req, res) => {
   if (!suggestion || suggestion.status !== "pending") {
     throw new HttpError(404, "Suggestion not found or already actioned");
   }
+  // Attach flavor first: the suggestion targets an EXISTING client — link
+  // the chat (a DM, typically) to it instead of creating a new relationship.
+  // If the target was deleted since the sweep, fall through to a normal
+  // create so the accept never dead-ends.
+  if (suggestion.attachRelationshipId != null) {
+    const target = db.get_relationship(suggestion.attachRelationshipId);
+    if (target) {
+      db.add_relationship_chat(target.id, {
+        kind: "dm",
+        telegramGroup: suggestion.telegramGroup,
+        telegramChatId: suggestion.telegramChatId,
+        contactName: suggestion.suggestedName,
+      });
+      db.set_suggestion_status(suggestion.id, "accepted");
+      sweepIfBound({ telegramGroup: suggestion.telegramGroup, telegramChatId: suggestion.telegramChatId });
+      return res.status(201).json(db.get_relationship(target.id));
+    }
+  }
+
   // Source-aware payload: telegram suggestions carry the chat binding,
   // granola ones carry a company (binding happens later — manually or via
   // the sweep's name-convention tier once a matching room exists).
@@ -515,6 +557,8 @@ function printEndpointList() {
     ["DELETE", "/api/relationships/<id>", "delete relationship"],
     ["POST", "/api/relationships/<id>/archive", "archive (queue engine skips it)"],
     ["POST", "/api/relationships/<id>/unarchive", "unarchive"],
+    ["POST", "/api/relationships/<id>/chats", "link an extra chat (DM / side room)"],
+    ["DELETE", "/api/relationships/<id>/chats/<chatId>", "unlink a chat"],
     ["POST", "/api/relationships/<id>/draft-reply", "draft a reply (Haiku)"],
     ["POST", "/api/relationships/<id>/send-message", "send a Telegram message"],
     ["GET", "/api/todos[?includeCompleted=]", "list todos"],
