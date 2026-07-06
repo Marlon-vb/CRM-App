@@ -1,23 +1,24 @@
 {
   "name": "cadence-mobile",
   "version": "0.1.0",
-  "main": "expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "ios": "expo start --ios",
     "export:check": "expo export --platform ios --output-dir /tmp/cadence-mobile-export"
   },
   "dependencies": {
-    "expo": "~52.0.0",
-    "expo-asset": "~11.0.1",
-    "expo-clipboard": "~7.0.0",
-    "expo-secure-store": "~14.0.0",
-    "expo-status-bar": "~2.0.0",
-    "react": "18.3.1",
-    "react-native": "0.76.5"
+    "expo": "~54.0.0",
+    "expo-asset": "~12.0.0",
+    "expo-clipboard": "~8.0.0",
+    "expo-secure-store": "~15.0.0",
+    "expo-status-bar": "~3.0.0",
+    "react": "19.1.0",
+    "react-native": "0.81.4"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.0"
+    "@babel/core": "^7.25.0",
+    "babel-preset-expo": "~54.0.0"
   },
   "private": true
 }
