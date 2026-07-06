@@ -129,6 +129,15 @@ function _startSweepLoop() {
       console.error(`[sweep] scheduled cycle error: ${e.message}`)
     );
   }, SWEEP_INTERVAL_MS);
+
+  // Route-triggered sweeps (client added / suggestion accepted / on-demand)
+  // run the same full cycle — sweep plus post-sweep extraction — instead of
+  // a bare sweep, so a freshly added client gets todos and promises too.
+  telegram.setSweepRunner(() =>
+    _runSweepCycle("client-triggered").catch((e) =>
+      console.error(`[sweep] client-triggered cycle error: ${e.message}`)
+    )
+  );
 }
 
 // ── startup ────────────────────────────────────────────────────────

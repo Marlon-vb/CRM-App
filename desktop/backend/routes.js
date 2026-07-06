@@ -181,13 +181,24 @@ app.get("/api/relationships", wrap((req, res) => {
   res.json(db.list_relationships(true));
 }));
 
+// A relationship that just gained a Telegram binding should get insights
+// now, not on the next 30-minute tick — schedule a debounced sweep.
+function sweepIfBound(body) {
+  if ((body?.telegramGroup || body?.telegramChatId) && settings.status().telegram) {
+    telegram.sweepSoon();
+  }
+}
+
 app.post("/api/relationships", wrap((req, res) => {
-  res.status(201).json(db.create_relationship(req.body || {}));
+  const relationship = db.create_relationship(req.body || {});
+  sweepIfBound(req.body);
+  res.status(201).json(relationship);
 }));
 
 app.patch("/api/relationships/:id", wrap((req, res) => {
   const relationship = db.update_relationship(idParam(req), req.body || {});
   if (relationship === null) throw new HttpError(404, "Relationship not found");
+  sweepIfBound(req.body);
   res.json(relationship);
 }));
 
@@ -389,9 +400,9 @@ app.post("/api/chats/sweep", wrap((req, res) => {
   if (telegram.isSweeping()) {
     return res.status(202).json({ alreadyRunning: true });
   }
-  telegram.sweep().catch((err) => {
-    console.error(`[sweep] on-demand sweep failed: ${err.message}`);
-  });
+  // Full cycle (sweep + post-sweep extraction), not a bare sweep — the
+  // runner catches its own errors, so no dangling rejection here.
+  telegram.runSweepCycle();
   res.status(202).json({ started: true });
 }));
 
@@ -437,6 +448,7 @@ app.post("/api/suggestions/:id/accept", wrap((req, res) => {
     telegramChatId: suggestion.telegramChatId,
   });
   db.set_suggestion_status(suggestion.id, "accepted");
+  sweepIfBound({ telegramGroup: suggestion.telegramGroup, telegramChatId: suggestion.telegramChatId });
   res.status(201).json(relationship);
 }));
 

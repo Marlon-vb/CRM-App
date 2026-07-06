@@ -301,6 +301,7 @@ async function disconnect() {
 // login client. server.js calls this from its shutdown path (standalone
 // signal handler, or Electron's will-quit).
 async function shutdown() {
+  clearTimeout(_sweepSoonTimer); // a pending client-add sweep must not fire mid-quit
   if (_pendingLogin) {
     try {
       await _pendingLogin.client.disconnect();
@@ -707,6 +708,37 @@ function isSweeping() {
   return _sweeping;
 }
 
+// The full sweep cycle to run for scheduled sweeps. Defaults to a bare
+// sweep(); server.js swaps in its cycle (sweep + post-sweep todo/promise
+// extraction) at startup so routes never need to import server.js back
+// (circular). The runner is expected to catch its own errors.
+let _sweepRunner = () =>
+  sweep().catch((e) => console.error(`[sweep] scheduled sweep failed: ${e.message}`));
+
+function setSweepRunner(fn) {
+  _sweepRunner = fn;
+}
+
+function runSweepCycle() {
+  return _sweepRunner();
+}
+
+// Debounced near-term sweep — routes call this after a relationship gains a
+// Telegram binding (create / rebind / suggestion accept) so the first
+// insights for a new client appear in seconds, not on the next 30-minute
+// tick. Debounce lets "add three clients in a row" cost one sweep.
+let _sweepSoonTimer = null;
+
+function sweepSoon(delayMs = 3000) {
+  clearTimeout(_sweepSoonTimer);
+  _sweepSoonTimer = setTimeout(() => {
+    _sweepSoonTimer = null;
+    if (_sweeping) return; // an in-flight sweep predates the new client; the timer cycle catches up
+    runSweepCycle();
+  }, delayMs);
+  if (_sweepSoonTimer.unref) _sweepSoonTimer.unref();
+}
+
 // Walk every tracked relationship's chat (last 10 messages, waiting_on,
 // action summary, telegram_last_activity write-back), then scan unknown
 // dialogs for new-conversation suggestions. Backend-owned: server.js runs
@@ -996,6 +1028,9 @@ module.exports = {
   telegramLogout,
   // sweep
   sweep,
+  sweepSoon,
+  setSweepRunner,
+  runSweepCycle,
   isSweeping,
   getProgress,
   getLastSweep,

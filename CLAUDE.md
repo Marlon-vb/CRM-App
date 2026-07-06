@@ -48,8 +48,12 @@ traps are the ancestral reference. PipeWise itself stays untouched.
 
 **The backend owns the Telegram cache — don't reintroduce the PipeWise
 frontend→backend POST pattern.** `telegram.sweep()` runs on a 30-min timer in
-`server.js` plus on demand (`POST /api/chats/sweep`); results persist to
-`<DATA_DIR>/telegram-cache.json` for warm starts. `GET /api/followups/queue`
+`server.js`, on demand (`POST /api/chats/sweep`), and ~3 s (debounced) after
+a relationship gains a Telegram binding — `telegram.sweepSoon()`, called from
+the create/patch/accept routes so a new client's insights don't wait for the
+timer. Route-triggered sweeps run the FULL cycle (sweep + extraction) via
+`telegram.setSweepRunner`, which `server.js` registers at startup. Results
+persist to `<DATA_DIR>/telegram-cache.json` for warm starts. `GET /api/followups/queue`
 reads `telegram.getLastSweep().chats` server-side. The frontend only triggers
 sweeps and polls `GET /api/chats/progress` (400 ms, cap 99% until
 `/api/chats/last` shows a new `sweptAt`). This inversion is what the iPhone

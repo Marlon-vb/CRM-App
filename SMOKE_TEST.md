@@ -46,8 +46,10 @@ Landing on the Queue tab afterwards: onboarding passes. ☑
 2. **Add a client** — Clients tab → add with the *exact* Telegram group
    name. Or check the Queue rail's **New conversations** block and click
    Track on something the sweep detected. ☑
-3. **Re-sweep** (button or wait ≤30 min) → the client row shows last-touch
-   age. ☑
+3. **Wait ~1 min** — adding a client schedules a sweep automatically
+   (~3 s later, plus up to 60 s for the UI's background watcher to pick up
+   the result) → the client row shows last-touch age and its cards appear
+   in the Queue. ☑
 4. **Reply card** — a chat where the other side spoke last shows up as
    "reply owed" with the last 3 messages. ☑
 5. **Draft** — Generate draft on that card → a Haiku draft in your voice
