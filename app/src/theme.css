@@ -1,0 +1,637 @@
+/* Tailwind is a build dep here (no CDN — the backend CSP allows no external
+   origins). The three directives expand at build time via postcss; dark:
+   variants key off [data-theme="dark"] per tailwind.config.js. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────
+   Cadence — theme tokens (ported from PipeWise Mock 1 palette)
+
+   Dark is the default. [data-theme="light"] on <html> flips
+   to a refreshed light palette that shares the new accent.
+   All variable names preserved from PipeWise so ported
+   component styles inherit automatically.
+   ───────────────────────────────────────────────────────────── */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Page bg + gradient (mock-11: #152331 → #000000) */
+  --bg:               #000000;
+  --bg-grad:          linear-gradient(135deg, #152331 0%, #0A1219 45%, #000000 100%);
+
+  /* Surfaces — cards solid #152331, raised states lift into navy family.
+     --surface-deep is BETWEEN page bg and card surface (the middle stop of
+     the page gradient) — used to wrap groups of cards. */
+  --surface:          #152331;
+  --surface-2:        #1A2C3D;
+  --surface-3:        #1F3548;
+  --surface-hover:    #244060;
+  --surface-muted:    #1A2C3D;
+  --surface-deep:     #0A1219;
+  --surface-overlay:  rgba(10,18,25,0.92);
+
+  /* Sidebar / chrome — translucent so the gradient bleeds through */
+  --sidebar-bg:       linear-gradient(180deg, rgba(21,35,49,0.55) 0%, rgba(0,0,0,0.30) 100%);
+
+  /* Borders — hairline white for cards on navy/black */
+  --border:           rgba(255,255,255,0.09);
+  --border-strong:    rgba(255,255,255,0.14);
+  --border-subtle:    rgba(255,255,255,0.06);
+  --border-faint:     rgba(255,255,255,0.04);
+  --border-hairline:  rgba(255,255,255,0.06);
+
+  /* Text */
+  --text:             #F2F4F7;
+  --text-secondary:   #A2A8B3;
+  --text-muted:       #A2A8B3;
+  --text-faint:       #6B7280;
+  --text-disabled:    #454A53;
+  --text-placeholder: #6B7280;
+  --text-divider:     rgba(255,255,255,0.10);
+
+  /* Brand — soft sky blue (HSL ~209°/35%/77%) that lives in the same hue
+     family as the #152331 gradient. Light enough to act as a CTA, not white. */
+  --brand:            #ACC4DE;
+  --brand-fg:         #152331;
+  --brand-strong:     #BDD3EB;
+  --brand-strong-fg:  #152331;
+  --brand-soft:       #8FAAC8;
+  --brand-deep:       #5E7C9C;
+  --brand-tint:       rgba(172,196,222,0.08);
+  --brand-tint-2:     rgba(172,196,222,0.14);
+  --brand-tint-3:     rgba(172,196,222,0.05);
+  --brand-tint-4:     rgba(172,196,222,0.22);
+  --brand-border:     rgba(172,196,222,0.30);
+
+  /* Status hues — kept semantic */
+  --success:          #30A46C;
+  --success-strong:   #4CC38A;
+  --success-deep:     #6EE7B7;
+  --success-soft:     #4CC38A;
+  --warning:          #F76808;
+  --warning-strong:   #FFA057;
+  --warning-deep:     #FFCC8A;
+  --warning-soft:     #FFA057;
+  --danger:           #E5484D;
+  --danger-strong:    #F2666A;
+  --danger-deep:      #FF8A8E;
+  --danger-soft:      #F2666A;
+  --info:             #3B82F6;
+  --info-strong:      #60A5FA;
+  --info-soft:        #60A5FA;
+  --info-faint:       #93C5FD;
+  --telegram:         #38BDF8;
+  --granola:          #F5C242;
+  --granola-soft:     rgba(245,194,66,0.16);
+  --granola-border:   rgba(245,194,66,0.32);
+
+  /* Tone pairs */
+  --tone-green-bg:    rgba(48,164,108,0.16);
+  --tone-green-fg:    #6EE7B7;
+  --tone-emerald-bg:  rgba(48,164,108,0.13);
+  --tone-emerald-fg:  #6EE7B7;
+  --tone-mint-bg:     rgba(110,231,183,0.16);
+  --tone-mint-fg:     #6EE7B7;
+  --tone-amber-bg:    rgba(247,104,8,0.16);
+  --tone-amber-fg:    #FFA057;
+  --tone-amber-fg-2:  #FFA057;
+  --tone-yellow-bg:   rgba(234,179,8,0.14);
+  --tone-yellow-fg:   #FDE68A;
+  --tone-yellow-fg-2: #FCD34D;
+  --tone-orange-bg:   rgba(247,104,8,0.18);
+  --tone-orange-fg:   #FFA057;
+  --tone-orange-bg-2: rgba(247,104,8,0.10);
+  --tone-orange-fg-2: #FFA057;
+  --tone-blue-bg:     rgba(59,130,246,0.18);
+  --tone-blue-fg:     #93C5FD;
+  --tone-skyblue-bg:  rgba(56,189,248,0.16);
+  --tone-skyblue-fg:  #7DD3FC;
+  --tone-blue-soft-bg:rgba(59,130,246,0.10);
+  --tone-purple-bg:   rgba(172,196,222,0.14);
+  --tone-purple-fg:   #ACC4DE;
+  --tone-purple-fg-2: #ACC4DE;
+  --tone-red-bg:      rgba(229,72,77,0.16);
+  --tone-red-fg:      #F2666A;
+  --tone-red-fg-2:    #F2666A;
+  --tone-gray-bg:     rgba(255,255,255,0.06);
+  --tone-gray-fg:     #A2A8B3;
+  --tone-amber-tint:  rgba(247,104,8,0.07);
+
+  /* Telegram chat row */
+  --tg-active-bg:     rgba(48,164,108,0.10);
+  --tg-active-border: rgba(48,164,108,0.30);
+  --tg-inactive-bg:   rgba(255,255,255,0.04);
+  --tg-inactive-border:rgba(255,255,255,0.10);
+
+  /* Charts / accents */
+  --accent-coral:     #F2666A;
+  --accent-pink:      #EC4899;
+  --accent-teal:      #14B8A6;
+  --accent-tangerine: #F76808;
+  --accent-indigo:    #818CF8;
+
+  /* Modal + shadows */
+  --overlay:          rgba(0,0,0,0.65);
+  --shadow-card:      0 1px 2px rgba(0,0,0,0.4), 0 10px 30px -10px rgba(0,0,0,0.5);
+  --shadow-popover:   0 8px 24px rgba(0,0,0,0.7);
+
+  --accent-glow:      rgba(172,196,222,0.25);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Page bg + gradient (mock-11: #ECE9E6 → #FFFFFF) */
+  --bg:               #ECE9E6;
+  --bg-grad:          linear-gradient(135deg, #ECE9E6 0%, #F4F1ED 35%, #FFFFFF 100%);
+
+  /* Surfaces — cards solid white, raised states lift slightly warm.
+     --surface-deep is BETWEEN page bg (cream) and card surface (white) —
+     used to wrap groups of cards. */
+  --surface:          #FFFFFF;
+  --surface-2:        #FAF9F7;
+  --surface-3:        #F1EFEB;
+  --surface-hover:    #E9E6DF;
+  --surface-muted:    #F1EFEB;
+  --surface-deep:     #F4F1ED;
+  --surface-overlay:  rgba(255,255,255,0.92);
+
+  /* Sidebar / chrome — translucent so the gradient bleeds through */
+  --sidebar-bg:       linear-gradient(180deg, rgba(236,233,230,0.60) 0%, rgba(255,255,255,0.30) 100%);
+
+  /* Borders — warm hairline */
+  --border:           rgba(60,50,35,0.09);
+  --border-strong:    rgba(60,50,35,0.14);
+  --border-subtle:    rgba(60,50,35,0.06);
+  --border-faint:     rgba(60,50,35,0.04);
+  --border-hairline:  rgba(60,50,35,0.05);
+
+  /* Text */
+  --text:             #1A1A1C;
+  --text-secondary:   #55534E;
+  --text-muted:       #6F6D67;
+  --text-faint:       #9F9D96;
+  --text-disabled:    #B0AEA7;
+  --text-placeholder: #9F9D96;
+  --text-divider:     rgba(60,50,35,0.10);
+
+  /* Brand — near-black accent (Linear-style on light) */
+  --brand:            #1A1A1C;
+  --brand-fg:         #FFFFFF;
+  --brand-strong:     #000000;
+  --brand-strong-fg:  #FFFFFF;
+  --brand-soft:       #3F3F45;
+  --brand-deep:       #000000;
+  --brand-tint:       rgba(26,26,28,0.06);
+  --brand-tint-2:     rgba(26,26,28,0.10);
+  --brand-tint-3:     rgba(26,26,28,0.04);
+  --brand-tint-4:     rgba(26,26,28,0.15);
+  --brand-border:     rgba(26,26,28,0.20);
+
+  /* Status hues — kept semantic */
+  --success:          #15803D;
+  --success-strong:   #166534;
+  --success-deep:     #14532D;
+  --success-soft:     #22C55E;
+  --warning:          #C2410C;
+  --warning-strong:   #9A3412;
+  --warning-deep:     #7C2D12;
+  --warning-soft:     #F97316;
+  --danger:           #DC2626;
+  --danger-strong:    #B91C1C;
+  --danger-deep:      #991B1B;
+  --danger-soft:      #EF4444;
+  --info:             #2563EB;
+  --info-strong:      #1D4ED8;
+  --info-soft:        #3B82F6;
+  --info-faint:       #93C5FD;
+  --telegram:         #0EA5E9;
+  --granola:          #D97706;
+  --granola-soft:     #FEF3C7;
+  --granola-border:   rgba(217,119,6,0.30);
+
+  /* Tone pairs */
+  --tone-green-bg:    #DCFCE7;
+  --tone-green-fg:    #166534;
+  --tone-emerald-bg:  #ECFDF5;
+  --tone-emerald-fg:  #047857;
+  --tone-mint-bg:     #A7F3D0;
+  --tone-mint-fg:     #047857;
+  --tone-amber-bg:    #FFEDD5;
+  --tone-amber-fg:    #9A3412;
+  --tone-amber-fg-2:  #C2410C;
+  --tone-yellow-bg:   #FEF9C3;
+  --tone-yellow-fg:   #854D0E;
+  --tone-yellow-fg-2: #CA8A04;
+  --tone-orange-bg:   #FFEDD5;
+  --tone-orange-fg:   #C2410C;
+  --tone-orange-bg-2: #FFF7ED;
+  --tone-orange-fg-2: #9A3412;
+  --tone-blue-bg:     #DBEAFE;
+  --tone-blue-fg:     #1E40AF;
+  --tone-skyblue-bg:  #E0F2FE;
+  --tone-skyblue-fg:  #0369A1;
+  --tone-blue-soft-bg:#EFF6FF;
+  --tone-purple-bg:   rgba(26,26,28,0.06);
+  --tone-purple-fg:   #3F3F45;
+  --tone-purple-fg-2: #1A1A1C;
+  --tone-red-bg:      #FEE2E2;
+  --tone-red-fg:      #991B1B;
+  --tone-red-fg-2:    #DC2626;
+  --tone-gray-bg:     #F4F2EE;
+  --tone-gray-fg:     #55534E;
+  --tone-amber-tint:  #FFFBEB;
+
+  /* Telegram chat row */
+  --tg-active-bg:     #F0FDF4;
+  --tg-active-border: #BBF7D0;
+  --tg-inactive-bg:   rgba(26,26,28,0.04);
+  --tg-inactive-border:rgba(26,26,28,0.12);
+
+  /* Charts / accents */
+  --accent-coral:     #F87171;
+  --accent-pink:      #EC4899;
+  --accent-teal:      #14B8A6;
+  --accent-tangerine: #F97316;
+  --accent-indigo:    #6366F1;
+
+  /* Modal + shadows */
+  --overlay:          rgba(0,0,0,0.4);
+  --shadow-card:      0 1px 2px rgba(60,50,35,0.04), 0 10px 28px -10px rgba(60,50,35,0.12);
+  --shadow-popover:   0 8px 24px rgba(60,50,35,0.15);
+
+  --accent-glow:      rgba(26,26,28,0.15);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Sizing tokens — typography, spacing, radius scales (B02, Jun 2026).
+
+   Theme-agnostic (no colors), defined on :root so they apply
+   regardless of [data-theme]. Use these instead of inline magic
+   numbers — adds consistency, unlocks a future density toggle.
+
+   Type scale (rounded to whole pixels; .5 variants collapsed):
+     --font-2xs   9px   micro-labels, count badges
+     --font-xs   10px   captions, meta, dense badge text
+     --font-sm   11px   list item meta, table cells
+     --font-base 12px   default body text in cards
+     --font-md   13px   body text in views/modals
+     --font-lg   14px   prominent labels, primary nav
+     --font-xl   16px   section headers
+     --font-2xl  18px   panel titles
+     --font-3xl  22px   hero numbers
+     --font-4xl  28px   page headings
+     --font-5xl  32px   marketing-grade headings
+
+   Spacing scale (4px base, half-step at low end):
+     --space-0    0     no gap
+     --space-0-5  2px   hairline (badge inner padding, divider)
+     --space-1    4px   tight inline gap
+     --space-1-5  6px   default inline gap
+     --space-2    8px   row/column gap, button padding-x
+     --space-2-5  10px  card inner gap
+     --space-3    12px  card padding, list item padding-y
+     --space-4    16px  section gap, modal inner padding
+     --space-5    20px  modal padding (compact)
+     --space-6    24px  panel padding
+     --space-7    28px  page padding (compact)
+     --space-8    32px  page padding (default)
+     --space-9    36px  hero / sidebar top padding
+     --space-10   40px  large section gap
+     --space-12   48px  empty-state vertical padding
+     --space-14   56px  empty-state vertical padding (tall)
+     --space-16   64px  empty-state vertical padding (huge)
+     --space-20   80px  centered empty-state outer padding
+
+   Radius scale:
+     --radius-xs    3px   tag/badge corners
+     --radius-sm    4px   small chips, inline buttons
+     --radius-md    6px   default for cards, buttons, inputs
+     --radius-lg    8px   raised surfaces
+     --radius-xl   10px   modals
+     --radius-2xl  12px   hero panels, dialogs
+     --radius-pill 999px  fully rounded pills, avatars
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* Typography */
+  --font-2xs:  9px;
+  --font-xs:   10px;
+  --font-sm:   11px;
+  --font-base: 12px;
+  --font-md:   13px;
+  --font-lg:   14px;
+  --font-xl:   16px;
+  --font-2xl:  18px;
+  --font-3xl:  22px;
+  --font-4xl:  28px;
+  --font-5xl:  32px;
+
+  /* Spacing */
+  --space-0:    0;
+  --space-0-5:  2px;
+  --space-1:    4px;
+  --space-1-5:  6px;
+  --space-2:    8px;
+  --space-2-5:  10px;
+  --space-3:    12px;
+  --space-4:    16px;
+  --space-5:    20px;
+  --space-6:    24px;
+  --space-7:    28px;
+  --space-8:    32px;
+  --space-9:    36px;
+  --space-10:   40px;
+  --space-12:   48px;
+  --space-14:   56px;
+  --space-16:   64px;
+  --space-20:   80px;
+
+  /* Radius */
+  --radius-xs:   3px;
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   10px;
+  --radius-2xl:  12px;
+  --radius-pill: 999px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Global typography — Inter if installed locally, else system.
+   (PipeWise imported Inter from rsms.me; Cadence's CSP allows no
+   external origins, so the webfont import is gone. The macOS
+   system font is a near match.)
+   ───────────────────────────────────────────────────────────── */
+
+html, body {
+  background: var(--bg);
+  background-image: var(--bg-grad);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';  /* alt 1, single-story a, single-story g */
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* Inter v4 variable font upgrade where installed */
+@supports (font-variation-settings: normal) {
+  html, body { font-family: 'InterVariable', 'Inter', system-ui, sans-serif; }
+}
+
+/* Tabular numerals — used wherever numbers should line up vertically */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Smooth theme cross-fade — opt out via .no-theme-transition */
+[data-theme] body * {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 160ms;
+  transition-timing-function: ease;
+}
+canvas, .no-theme-transition, .no-theme-transition * { transition: none !important; }
+
+/* Custom scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid var(--surface);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-disabled); }
+
+/* Native form controls inherit theme */
+input, select, textarea { color: var(--text); background: transparent; }
+input::placeholder, textarea::placeholder { color: var(--text-placeholder); }
+
+/* ─────────────────────────────────────────────────────────────
+   Tailwind utility overrides for dark mode.
+   The base palette flips automatically via tokens above, but
+   inline className="bg-white text-gray-900 …" still needs help.
+   ───────────────────────────────────────────────────────────── */
+
+:root .bg-white,
+[data-theme="dark"] .bg-white          { background-color: var(--surface) !important; }
+:root .bg-gray-50,
+[data-theme="dark"] .bg-gray-50        { background-color: var(--surface-2) !important; }
+:root .bg-gray-100,
+[data-theme="dark"] .bg-gray-100       { background-color: var(--surface-3) !important; }
+:root .bg-gray-200,
+[data-theme="dark"] .bg-gray-200       { background-color: var(--surface-hover) !important; }
+:root .bg-gray-800,
+[data-theme="dark"] .bg-gray-800       { background-color: var(--surface-3) !important; }
+:root .bg-gray-900,
+[data-theme="dark"] .bg-gray-900       { background-color: var(--surface-2) !important; }
+:root .bg-indigo-100,
+[data-theme="dark"] .bg-indigo-100     { background-color: var(--brand-tint-2) !important; }
+:root .bg-amber-50,
+[data-theme="dark"] .bg-amber-50       { background-color: var(--tone-amber-bg) !important; }
+:root .bg-blue-50,
+[data-theme="dark"] .bg-blue-50        { background-color: var(--tone-blue-bg) !important; }
+:root .bg-red-50,
+[data-theme="dark"] .bg-red-50         { background-color: var(--tone-red-bg) !important; }
+
+:root .border-gray-50,
+[data-theme="dark"] .border-gray-50    { border-color: var(--border-faint) !important; }
+:root .border-gray-100,
+[data-theme="dark"] .border-gray-100   { border-color: var(--border-subtle) !important; }
+:root .border-gray-200,
+[data-theme="dark"] .border-gray-200   { border-color: var(--border) !important; }
+:root .border-indigo-100,
+[data-theme="dark"] .border-indigo-100 { border-color: var(--brand-border) !important; }
+:root .border-amber-200,
+[data-theme="dark"] .border-amber-200  { border-color: rgba(247,104,8,0.40) !important; }
+:root .border-blue-200,
+[data-theme="dark"] .border-blue-200   { border-color: rgba(59,130,246,0.45) !important; }
+
+:root .text-gray-900,
+[data-theme="dark"] .text-gray-900     { color: var(--text) !important; }
+:root .text-gray-700,
+[data-theme="dark"] .text-gray-700     { color: var(--text) !important; }
+:root .text-gray-600,
+[data-theme="dark"] .text-gray-600     { color: var(--text-secondary) !important; }
+:root .text-gray-500,
+[data-theme="dark"] .text-gray-500     { color: var(--text-muted) !important; }
+:root .text-gray-400,
+[data-theme="dark"] .text-gray-400     { color: var(--text-faint) !important; }
+:root .text-gray-300,
+[data-theme="dark"] .text-gray-300     { color: var(--text-disabled) !important; }
+:root .text-blue-600,
+[data-theme="dark"] .text-blue-600     { color: var(--info-soft) !important; }
+:root .text-blue-800,
+[data-theme="dark"] .text-blue-800     { color: var(--info-strong) !important; }
+:root .text-amber-600,
+[data-theme="dark"] .text-amber-600    { color: var(--warning-soft) !important; }
+:root .text-red-600,
+[data-theme="dark"] .text-red-600      { color: var(--danger-soft) !important; }
+:root .text-green-300,
+[data-theme="dark"] .text-green-300    { color: var(--success-soft) !important; }
+:root .text-green-400,
+[data-theme="dark"] .text-green-400    { color: var(--success-soft) !important; }
+:root .text-green-500,
+[data-theme="dark"] .text-green-500    { color: var(--success-soft) !important; }
+:root .text-green-600,
+[data-theme="dark"] .text-green-600    { color: var(--success-soft) !important; }
+:root .text-indigo-600,
+[data-theme="dark"] .text-indigo-600   { color: var(--brand-soft) !important; }
+
+:root .hover\:bg-gray-50:hover,
+[data-theme="dark"] .hover\:bg-gray-50:hover    { background-color: var(--surface-2) !important; }
+:root .hover\:bg-gray-100:hover,
+[data-theme="dark"] .hover\:bg-gray-100:hover   { background-color: var(--surface-hover) !important; }
+:root .hover\:bg-gray-800:hover,
+[data-theme="dark"] .hover\:bg-gray-800:hover   { background-color: var(--surface-3) !important; }
+:root .hover\:bg-blue-50:hover,
+[data-theme="dark"] .hover\:bg-blue-50:hover    { background-color: var(--tone-blue-bg) !important; }
+:root .hover\:bg-amber-50:hover,
+[data-theme="dark"] .hover\:bg-amber-50:hover   { background-color: var(--tone-amber-bg) !important; }
+:root .hover\:bg-red-50:hover,
+[data-theme="dark"] .hover\:bg-red-50:hover     { background-color: var(--tone-red-bg) !important; }
+:root .hover\:text-blue-800:hover,
+[data-theme="dark"] .hover\:text-blue-800:hover { color: var(--info-strong) !important; }
+:root .hover\:text-gray-600:hover,
+[data-theme="dark"] .hover\:text-gray-600:hover { color: var(--text-secondary) !important; }
+:root .hover\:border-indigo-100:hover,
+[data-theme="dark"] .hover\:border-indigo-100:hover { border-color: var(--brand-border) !important; }
+
+/* Heavier shadows for dark surfaces */
+:root .shadow-sm,
+[data-theme="dark"] .shadow-sm  { box-shadow: 0 1px 2px rgba(0,0,0,0.5) !important; }
+:root .shadow-md,
+[data-theme="dark"] .shadow-md  { box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important; }
+:root .shadow-lg,
+[data-theme="dark"] .shadow-lg  { box-shadow: 0 8px 24px rgba(0,0,0,0.6) !important; }
+:root .shadow-xl,
+[data-theme="dark"] .shadow-xl  { box-shadow: 0 16px 32px rgba(0,0,0,0.7) !important; }
+:root .shadow-2xl,
+[data-theme="dark"] .shadow-2xl { box-shadow: 0 24px 48px rgba(0,0,0,0.75) !important; }
+
+/* ─────────────────────────────────────────────────────────────
+   Todo tab — check-off + entrance motion. CSS-only, 220–360ms.
+   Theme-agnostic (no colors) so it works in light + dark.
+   ───────────────────────────────────────────────────────────── */
+@keyframes todo-row-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.todo-row { animation: todo-row-in 220ms ease both; }
+
+/* Completed task holds briefly (showing the check + strikethrough),
+   then glides out — it's re-homed into the Completed section. */
+@keyframes todo-complete-out {
+  0%   { opacity: 1; transform: translateX(0); }
+  55%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0.2; transform: translateX(8px); }
+}
+.todo-completing { animation: todo-complete-out 360ms ease forwards; }
+
+/* Satisfying pop on the checkbox the moment a task is checked off. */
+@keyframes todo-check-pop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+.todo-check-pop { animation: todo-check-pop 280ms cubic-bezier(.34,1.56,.64,1); }
+
+/* ─────────────────────────────────────────────────────────────
+   Queue view motion (ported from PipeWise Phase FU).
+   Staggered reveals, confirm-send sweep, confetti, easter eggs.
+   Theme-agnostic where possible.
+   ───────────────────────────────────────────────────────────── */
+
+@keyframes pw-reveal-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.pw-reveal   { animation: pw-reveal-in 500ms cubic-bezier(.2,.8,.3,1) both; }
+.pw-reveal-1 { animation-delay: 40ms; }
+.pw-reveal-2 { animation-delay: 120ms; }
+.pw-reveal-3 { animation-delay: 200ms; }
+.pw-reveal-4 { animation-delay: 280ms; }
+.pw-reveal-5 { animation-delay: 360ms; }
+
+@keyframes pw-stage-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.pw-stage-in { animation: pw-stage-in 240ms ease both; }
+
+@keyframes pw-spin { to { transform: rotate(360deg); } }
+.pw-spin { animation: pw-spin 1s linear infinite; }
+
+/* Confirm-first send: 2s undo sweep across the button */
+@keyframes pw-undo-sweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.pw-undo-fill {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.22);
+  transform-origin: left; transform: scaleX(0);
+  animation: pw-undo-sweep 2s linear forwards;
+  pointer-events: none;
+}
+
+/* Confetti on queue-zero */
+@keyframes pw-confetti-fall {
+  to { transform: translateY(105vh) rotate(720deg); opacity: 0.4; }
+}
+.pw-confetti {
+  position: fixed; top: -12px; border-radius: 2px;
+  pointer-events: none; z-index: 200;
+  animation: pw-confetti-fall linear forwards;
+}
+
+/* Bouncing ball — queue-zero hero */
+@keyframes pw-ball-bounce {
+  from { transform: translateY(0) rotate(-8deg); }
+  to   { transform: translateY(-20px) rotate(10deg); }
+}
+.pw-ball { animation: pw-ball-bounce 900ms cubic-bezier(.34,1.56,.64,1) infinite alternate; }
+
+/* Queue rail + snooze hover states (inline styles can't do :hover) */
+.pw-qitem:hover { background: var(--surface-2) !important; }
+.pw-snooze-opt:hover { background: var(--surface-3); color: var(--text) !important; }
+
+.pw-kbd {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--text-secondary);
+}
+
+/* Determinate top-of-page sync bar — pinned at the top of the main content
+   column, visible from every tab. `.is-active` fades it in/out; the inner
+   fill width is set inline from the polled percentage. */
+.cadence-progress {
+  position: relative;
+  height: 2px;
+  flex-shrink: 0;
+  background: var(--surface-3);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+.cadence-progress.is-active {
+  opacity: 1;
+}
+.cadence-progress__fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: var(--brand);
+  border-radius: 0 1px 1px 0;
+  transition: width 0.3s ease;
+}
