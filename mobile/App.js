@@ -176,9 +176,14 @@ export default function App() {
                 : 0;
           return (
             <TouchableOpacity key={key} style={s.tab} onPress={() => setTab(key)}>
-              <Text style={[s.tabText, active && s.tabActive]}>
-                {label}{badge > 0 ? ` ${badge}` : ""}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[s.tabText, active && s.tabActive]}>{label}</Text>
+                {badge > 0 && (
+                  <View style={[s.badge, active && s.badgeActive]}>
+                    <Text style={[s.badgeText, active && s.badgeTextActive]}>{badge}</Text>
+                  </View>
+                )}
+              </View>
             </TouchableOpacity>
           );
         })}
@@ -195,6 +200,10 @@ const s = StyleSheet.create({
   tab: { flex: 1, alignItems: "center", paddingVertical: 13 },
   tabText: { color: C.textFaint, fontSize: 13, fontWeight: "600" },
   tabActive: { color: C.brand },
+  badge: { backgroundColor: C.surface2, borderRadius: 9, minWidth: 18, paddingHorizontal: 5, paddingVertical: 1, alignItems: "center" },
+  badgeActive: { backgroundColor: C.brand },
+  badgeText: { color: C.textFaint, fontSize: 11, fontWeight: "800" },
+  badgeTextActive: { color: C.brandFg },
   toast: {
     position: "absolute", bottom: 74, left: 20, right: 20, zIndex: 10,
     backgroundColor: C.surface2, borderColor: C.border, borderWidth: 1,

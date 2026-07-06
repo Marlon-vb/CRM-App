@@ -90,6 +90,15 @@ function _hoursSince(iso, now) {
   return t === null ? null : Math.max(0, (now - t) / _HOUR);
 }
 
+// Human-scale age for why-lines: hours under a day, days after ("994h
+// ago" reads as line noise; "41d ago" reads as a relationship state).
+function _agoLabel(hours) {
+  const h = Math.round(hours);
+  if (h < 1) return "just now";
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
 // Is this snooze still active (i.e. should the item stay hidden)?
 function _snooze_active(snooze, lastInboundISO, now) {
   if (!snooze) return false;
@@ -260,7 +269,7 @@ function build_queue({ telegramData = {} } = {}) {
           noteTitle: recapNote.title,
           noteSummary: (recapNote.summary || "").slice(0, 2000),
           meetingDate: recapNote.meetingDate,
-          why: `Meeting "${recapNote.title}" ${Math.round(hoursSinceMeet)}h ago — recap not sent`,
+          why: `Meeting "${recapNote.title}" ${_agoLabel(hoursSinceMeet)} — recap not sent`,
           urgency: 90 + Math.min(40, hoursSinceMeet),
         });
       }
@@ -276,7 +285,7 @@ function build_queue({ telegramData = {} } = {}) {
         items.push({
           ...base, key, kind: "reply",
           lastInbound: lastMsg ? { text: (lastMsg.text || "").slice(0, 500), date: lastMsg.date, sender: lastMsg.sender || null } : null,
-          why: `${(lastMsg && lastMsg.sender) || "They"} wrote ${Math.round(hoursOwed)}h ago — you haven't replied`,
+          why: `${(lastMsg && lastMsg.sender) || "They"} wrote ${_agoLabel(hoursOwed)} — you haven't replied`,
           urgency: 100 + Math.min(60, hoursOwed),
         });
       }

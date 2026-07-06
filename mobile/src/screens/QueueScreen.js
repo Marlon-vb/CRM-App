@@ -1,32 +1,52 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View, Text, SectionList, TouchableOpacity, RefreshControl, Modal,
-  Linking, StyleSheet,
+  Linking, Animated, StyleSheet,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as cloud from "../lib/cloud";
 import { telegramLinkCandidates, lastInboundDate, snoozeUntil } from "../lib/telegram-links";
-import { C, KIND_META, KIND_ORDER } from "../theme";
+import { C, KIND_META, KIND_ORDER, avatarColor, initials, timeAgo } from "../theme";
 
-function timeAgo(iso) {
-  if (!iso) return "";
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 90) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+function Avatar({ name, size = 38 }) {
+  return (
+    <View style={{
+      width: size, height: size, borderRadius: size * 0.32,
+      backgroundColor: avatarColor(name),
+      alignItems: "center", justifyContent: "center",
+    }}>
+      <Text style={{ color: "#0A1626", fontWeight: "800", fontSize: size * 0.38 }}>
+        {initials(name)}
+      </Text>
+    </View>
+  );
 }
 
-/* One queue card. Expand for messages + bundle; actions mirror the Mac:
-   Done = snooze until tomorrow 09:00 (todos complete instead), Snooze
-   menu incl. after-they-reply, Open in Telegram via deep link. The Mac
-   applies phone actions on its next sync (≤5 min), so acted-on cards
-   hide locally right away. */
-function QueueCard({ item, onActed, onError }) {
+/* Urgency reads at a glance: hot cards (reply owed for days) get an ember
+   dot next to the age instead of a wall of identical boxes. */
+function heat(urgency) {
+  if (urgency >= 140) return { dot: "#E5474D", label: "overdue" };
+  if (urgency >= 110) return { dot: "#F5C242", label: "aging" };
+  return null;
+}
+
+function QueueCard({ item, index, onActed, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const meta = KIND_META[item.kind] || KIND_META.todo;
+  const hot = heat(item.urgency);
+
+  // Staggered entrance — cheap Animated, Expo-Go safe.
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 320,
+      delay: Math.min(index, 8) * 45,
+      useNativeDriver: true,
+    }).start();
+  }, [anim, index]);
 
   const act = async (fn, label) => {
     setBusy(true);
@@ -51,7 +71,7 @@ function QueueCard({ item, onActed, onError }) {
           if (b.type === "promise") await cloud.resolvePromise(b.id, "kept").catch(() => {});
         }
       }
-    }, "Done — the Mac applies it on its next sync");
+    }, "Done ✓ — the Mac applies it on its next sync");
 
   const handleSnooze = (option) => {
     setSnoozeOpen(false);
@@ -61,7 +81,7 @@ function QueueCard({ item, onActed, onError }) {
       } else {
         await cloud.upsertSnooze(item.key, "until", snoozeUntil(option), null);
       }
-    }, "Snoozed");
+    }, "Snoozed 💤");
   };
 
   const openTelegram = async () => {
@@ -83,100 +103,164 @@ function QueueCard({ item, onActed, onError }) {
   };
 
   return (
-    <TouchableOpacity style={s.card} activeOpacity={0.85} onPress={() => setExpanded((v) => !v)}>
-      <View style={s.cardHead}>
-        <Text style={[s.kind, { color: meta.color }]}>{meta.icon} {meta.label.toUpperCase()}</Text>
-        {item.chatCount > 1 ? <Text style={s.chatCount}>{item.chatCount} chats</Text> : null}
-      </View>
-      <Text style={s.name}>{item.relationshipName || item.title || item.key}</Text>
-      {item.why ? <Text style={s.why}>{item.why}</Text> : null}
-      {item.actionSummary ? <Text style={s.summary}>{item.actionSummary}</Text> : null}
+    <Animated.View style={{
+      opacity: anim,
+      transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+    }}>
+      <TouchableOpacity
+        style={[s.card, { borderLeftColor: meta.color }]}
+        activeOpacity={0.85}
+        onPress={() => setExpanded((v) => !v)}
+      >
+        <View style={s.cardRow}>
+          <Avatar name={item.relationshipName || item.title || "?"} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={s.cardHead}>
+              <View style={[s.kindChip, { backgroundColor: meta.tint }]}>
+                <Text style={[s.kindText, { color: meta.color }]}>{meta.icon} {meta.label}</Text>
+              </View>
+              {hot && (
+                <View style={s.heat}>
+                  <View style={[s.heatDot, { backgroundColor: hot.dot }]} />
+                  <Text style={[s.heatText, { color: hot.dot }]}>{hot.label}</Text>
+                </View>
+              )}
+              {item.chatCount > 1 ? <Text style={s.chatCount}>{item.chatCount} chats</Text> : null}
+            </View>
+            <Text style={s.name} numberOfLines={1}>
+              {item.relationshipName || item.title || item.key}
+            </Text>
+            {item.why ? <Text style={s.why}>{item.why}</Text> : null}
+          </View>
+        </View>
 
-      {expanded && (
-        <View style={s.detail}>
-          {(item.messages || []).slice(0, 5).slice().reverse().map((m) => (
-            <Text key={m.id} style={s.msg}>
-              <Text style={{ color: m.is_me ? C.brand : C.textSecondary, fontWeight: "600" }}>
-                {m.is_me ? "me" : m.sender || "them"}:{" "}
-              </Text>
-              <Text style={{ color: C.text }}>{m.text}</Text>
-            </Text>
-          ))}
-          {(item.bundle || []).map((b) => (
-            <Text key={`${b.type}:${b.id}`} style={s.bundle}>
-              {b.type === "todo" ? "☑" : "◆"} {b.label}
-            </Text>
-          ))}
-          {item.noteSummary ? (
-            <Text style={s.note} numberOfLines={6}>{item.noteSummary}</Text>
+        {item.actionSummary ? <Text style={s.summary}>“{item.actionSummary}”</Text> : null}
+
+        {expanded && (
+          <View style={s.detail}>
+            {(item.messages || []).slice(0, 5).slice().reverse().map((m) => (
+              <View key={m.id} style={[s.bubble, m.is_me ? s.bubbleMe : s.bubbleThem]}>
+                <Text style={s.bubbleSender}>{m.is_me ? "you" : m.sender || "them"} · {timeAgo(m.date)}</Text>
+                <Text style={s.bubbleText}>{m.text}</Text>
+              </View>
+            ))}
+            {(item.bundle || []).length > 0 && (
+              <View style={s.bundleBox}>
+                <Text style={s.bundleTitle}>CLEARS WITH THIS</Text>
+                {(item.bundle || []).map((b) => (
+                  <Text key={`${b.type}:${b.id}`} style={s.bundle}>
+                    {b.type === "todo" ? "☑" : "◆"} {b.label}
+                  </Text>
+                ))}
+              </View>
+            )}
+            {item.noteSummary ? (
+              <Text style={s.note} numberOfLines={6}>{item.noteSummary}</Text>
+            ) : null}
+            <TouchableOpacity onPress={copyContext}>
+              <Text style={s.copy}>⧉ Copy conversation</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View style={s.actions}>
+          {item.activeChatId ? (
+            <TouchableOpacity style={[s.btn, s.btnTelegram]} disabled={busy} onPress={openTelegram}>
+              <Text style={s.btnTelegramText}>Open in Telegram</Text>
+            </TouchableOpacity>
           ) : null}
-          <TouchableOpacity onPress={copyContext}>
-            <Text style={s.copy}>Copy conversation</Text>
+          <TouchableOpacity style={[s.btn, s.btnDone]} disabled={busy} onPress={handleDone}>
+            <Text style={s.btnDoneText}>{busy ? "…" : "Done"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.btn} disabled={busy} onPress={() => setSnoozeOpen(true)}>
+            <Text style={s.btnText}>zZ</Text>
           </TouchableOpacity>
         </View>
-      )}
 
-      <View style={s.actions}>
-        {item.activeChatId ? (
-          <TouchableOpacity style={[s.btn, s.btnTelegram]} disabled={busy} onPress={openTelegram}>
-            <Text style={s.btnTelegramText}>Open in Telegram</Text>
+        <Modal transparent visible={snoozeOpen} animationType="fade" onRequestClose={() => setSnoozeOpen(false)}>
+          <TouchableOpacity style={s.modalBack} activeOpacity={1} onPress={() => setSnoozeOpen(false)}>
+            <View style={s.modalSheet}>
+              <Text style={s.modalTitle}>Snooze {item.relationshipName || ""}</Text>
+              {[["tonight", "🌙  Tonight 18:00"], ["tomorrow", "☀️  Tomorrow 09:00"],
+                ["nextweek", "📅  Next week"], ["after_reply", "✦  After they reply"]].map(([opt, label]) => (
+                <TouchableOpacity key={opt} style={s.modalRow} onPress={() => handleSnooze(opt)}>
+                  <Text style={[s.modalText, opt === "after_reply" && { color: C.brand, fontWeight: "700" }]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </TouchableOpacity>
-        ) : null}
-        <TouchableOpacity style={s.btn} disabled={busy} onPress={handleDone}>
-          <Text style={s.btnText}>{busy ? "…" : "Done"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.btn} disabled={busy} onPress={() => setSnoozeOpen(true)}>
-          <Text style={s.btnText}>Snooze</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Modal transparent visible={snoozeOpen} animationType="fade" onRequestClose={() => setSnoozeOpen(false)}>
-        <TouchableOpacity style={s.modalBack} activeOpacity={1} onPress={() => setSnoozeOpen(false)}>
-          <View style={s.modalSheet}>
-            {[["tonight", "Tonight 18:00"], ["tomorrow", "Tomorrow 09:00"],
-              ["nextweek", "Next week"], ["after_reply", "✦ After they reply"]].map(([opt, label]) => (
-              <TouchableOpacity key={opt} style={s.modalRow} onPress={() => handleSnooze(opt)}>
-                <Text style={[s.modalText, opt === "after_reply" && { color: C.brand, fontWeight: "700" }]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </TouchableOpacity>
+        </Modal>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
 export default function QueueScreen({ queue, refreshing, onRefresh, onActed, onError }) {
   const hidden = queue.hiddenKeys || new Set();
+  const visible = (queue.items || []).filter((i) => !hidden.has(i.key));
   const sections = KIND_ORDER
     .map((kind) => ({
       title: KIND_META[kind].label,
-      data: (queue.items || []).filter((i) => i.kind === kind && !hidden.has(i.key)),
+      kind,
+      data: visible.filter((i) => i.kind === kind),
     }))
     .filter((sec) => sec.data.length > 0);
+
+  const counts = KIND_ORDER
+    .map((kind) => ({ kind, n: visible.filter((i) => i.kind === kind).length }))
+    .filter((c) => c.n > 0);
+  const eta = visible.reduce((m, i) => m + (i.kind === "todo" ? 2 : 3), 0);
 
   return (
     <View style={{ flex: 1 }}>
       <View style={s.header}>
-        <Text style={s.headerTitle}>Queue</Text>
-        <Text style={s.headerMeta}>
-          {queue.sweptAt ? `swept ${timeAgo(queue.sweptAt)}` : "waiting for the Mac's first publish"}
-        </Text>
+        <View>
+          <Text style={s.headerTitle}>
+            {visible.length === 0 ? "All clear" : `${visible.length} need you`}
+          </Text>
+          <Text style={s.headerMeta}>
+            {visible.length > 0 ? `≈${eta} min to clear · ` : ""}
+            {queue.sweptAt ? `swept ${timeAgo(queue.sweptAt)}` : "waiting for the Mac"}
+          </Text>
+        </View>
       </View>
+
+      {counts.length > 1 && (
+        <View style={s.statStrip}>
+          {counts.map(({ kind, n }) => (
+            <View key={kind} style={[s.stat, { backgroundColor: KIND_META[kind].tint }]}>
+              <Text style={[s.statText, { color: KIND_META[kind].color }]}>
+                {KIND_META[kind].icon} {n}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       <SectionList
         sections={sections}
         keyExtractor={(i) => i.key}
-        renderItem={({ item }) => <QueueCard item={item} onActed={onActed} onError={onError} />}
-        renderSectionHeader={({ section }) => <Text style={s.section}>{section.title}</Text>}
+        renderItem={({ item, index }) => (
+          <QueueCard item={item} index={index} onActed={onActed} onError={onError} />
+        )}
+        renderSectionHeader={({ section }) => (
+          <View style={s.sectionRow}>
+            <View style={[s.sectionDot, { backgroundColor: KIND_META[section.kind].color }]} />
+            <Text style={s.section}>{section.title}</Text>
+            <Text style={s.sectionCount}>{section.data.length}</Text>
+          </View>
+        )}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.textFaint} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 90 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 90, paddingTop: 4 }}
         ListEmptyComponent={
           <View style={s.empty}>
-            <Text style={s.emptyBig}>All clear.</Text>
+            <Text style={s.emptyEmoji}>🎾</Text>
+            <Text style={s.emptyBig}>Queue zero.</Text>
             <Text style={s.emptyText}>
-              Nothing needs you — or the Mac hasn't published yet. Pull to refresh.
+              Every conversation is where it should be. Go enjoy it — the Mac
+              is watching your chats.
             </Text>
           </View>
         }
@@ -187,32 +271,56 @@ export default function QueueScreen({ queue, refreshing, onRefresh, onActed, onE
 }
 
 const s = StyleSheet.create({
-  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4, flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
-  headerTitle: { color: C.text, fontSize: 24, fontWeight: "700" },
-  headerMeta: { color: C.textFaint, fontSize: 12 },
-  section: { color: C.textFaint, fontSize: 11, fontWeight: "700", letterSpacing: 1.1, textTransform: "uppercase", marginTop: 14, marginBottom: 6 },
-  card: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
-  cardHead: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  kind: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
-  chatCount: { color: C.textFaint, fontSize: 11 },
-  name: { color: C.text, fontSize: 17, fontWeight: "700" },
-  why: { color: C.textSecondary, fontSize: 13, marginTop: 2 },
-  summary: { color: C.textFaint, fontSize: 12, fontStyle: "italic", marginTop: 3 },
-  detail: { marginTop: 10, borderTopColor: C.border, borderTopWidth: 1, paddingTop: 10 },
-  msg: { fontSize: 13, lineHeight: 19, marginBottom: 3 },
-  bundle: { color: C.warning, fontSize: 13, marginTop: 4 },
-  note: { color: C.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 6 },
-  copy: { color: C.brand, fontSize: 13, marginTop: 8 },
+  header: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8 },
+  headerTitle: { color: C.text, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
+  headerMeta: { color: C.textFaint, fontSize: 12.5, marginTop: 2 },
+  statStrip: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 6 },
+  stat: { borderRadius: 20, paddingVertical: 5, paddingHorizontal: 11 },
+  statText: { fontSize: 12.5, fontWeight: "700" },
+  sectionRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 16, marginBottom: 7 },
+  sectionDot: { width: 7, height: 7, borderRadius: 4 },
+  section: { color: C.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 1.1, textTransform: "uppercase" },
+  sectionCount: { color: C.textFaint, fontSize: 12, fontWeight: "700" },
+  card: {
+    backgroundColor: C.surface, borderColor: C.border, borderWidth: 1,
+    borderLeftWidth: 3, borderRadius: 16, padding: 14, marginBottom: 10,
+  },
+  cardRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  cardHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+  kindChip: { borderRadius: 12, paddingVertical: 2, paddingHorizontal: 8 },
+  kindText: { fontSize: 10.5, fontWeight: "800", letterSpacing: 0.6 },
+  heat: { flexDirection: "row", alignItems: "center", gap: 4 },
+  heatDot: { width: 6, height: 6, borderRadius: 3 },
+  heatText: { fontSize: 10.5, fontWeight: "700" },
+  chatCount: { color: C.textFaint, fontSize: 11, marginLeft: "auto" },
+  name: { color: C.text, fontSize: 17, fontWeight: "700", letterSpacing: -0.2 },
+  why: { color: C.textSecondary, fontSize: 13, marginTop: 2, lineHeight: 18 },
+  summary: { color: C.textFaint, fontSize: 12.5, fontStyle: "italic", marginTop: 8 },
+  detail: { marginTop: 12, borderTopColor: C.border, borderTopWidth: 1, paddingTop: 10 },
+  bubble: { borderRadius: 12, padding: 9, marginBottom: 6, maxWidth: "94%" },
+  bubbleThem: { backgroundColor: C.surface2, alignSelf: "flex-start" },
+  bubbleMe: { backgroundColor: "rgba(127,180,232,0.16)", alignSelf: "flex-end" },
+  bubbleSender: { color: C.textFaint, fontSize: 10.5, marginBottom: 2 },
+  bubbleText: { color: C.text, fontSize: 13.5, lineHeight: 19 },
+  bundleBox: { backgroundColor: "rgba(245,194,66,0.08)", borderRadius: 10, padding: 10, marginTop: 4 },
+  bundleTitle: { color: C.warning, fontSize: 10, fontWeight: "800", letterSpacing: 1, marginBottom: 4 },
+  bundle: { color: C.textSecondary, fontSize: 13, marginTop: 2 },
+  note: { color: C.textSecondary, fontSize: 12.5, lineHeight: 18, marginTop: 8 },
+  copy: { color: C.brand, fontSize: 13, marginTop: 10, fontWeight: "600" },
   actions: { flexDirection: "row", gap: 8, marginTop: 12 },
-  btn: { backgroundColor: C.surface2, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 14 },
-  btnText: { color: C.text, fontSize: 13, fontWeight: "600" },
-  btnTelegram: { backgroundColor: C.telegram },
-  btnTelegramText: { color: "#04121F", fontSize: 13, fontWeight: "700" },
+  btn: { backgroundColor: C.surface3, borderRadius: 20, paddingVertical: 9, paddingHorizontal: 15 },
+  btnText: { color: C.textSecondary, fontSize: 13, fontWeight: "700" },
+  btnTelegram: { backgroundColor: C.telegram, flexGrow: 1, alignItems: "center" },
+  btnTelegramText: { color: "#04121F", fontSize: 13.5, fontWeight: "800" },
+  btnDone: { backgroundColor: "rgba(76,195,138,0.16)" },
+  btnDoneText: { color: C.success, fontSize: 13, fontWeight: "800" },
   modalBack: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
-  modalSheet: { backgroundColor: C.surface2, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 12, paddingBottom: 34 },
+  modalSheet: { backgroundColor: C.surface2, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 14, paddingBottom: 36 },
+  modalTitle: { color: C.textFaint, fontSize: 12, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", paddingHorizontal: 10, paddingBottom: 6 },
   modalRow: { paddingVertical: 14, paddingHorizontal: 10 },
   modalText: { color: C.text, fontSize: 16 },
-  empty: { alignItems: "center", paddingTop: 90 },
-  emptyBig: { color: C.text, fontSize: 20, fontWeight: "700", marginBottom: 6 },
-  emptyText: { color: C.textFaint, fontSize: 13, textAlign: "center", paddingHorizontal: 40 },
+  empty: { alignItems: "center", paddingTop: 70 },
+  emptyEmoji: { fontSize: 44, marginBottom: 10 },
+  emptyBig: { color: C.text, fontSize: 22, fontWeight: "800", marginBottom: 6 },
+  emptyText: { color: C.textFaint, fontSize: 13.5, textAlign: "center", paddingHorizontal: 44, lineHeight: 19 },
 });
