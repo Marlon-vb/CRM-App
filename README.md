@@ -66,6 +66,14 @@ Supabase sync) is planned — see `PLAN.md`.
   sync. Setup: [`cloud/CLOUD_SETUP.md`](cloud/CLOUD_SETUP.md).
 - Telegram session and API keys **never** leave the Mac.
 
+### Hub vs client mode
+- One Mac is the **hub** (the default — owns Telegram, sweeps, publishes).
+  Any other Mac can run as a **client**: first-run onboarding offers "Track
+  my todos from here", which connects to Cadence Cloud and reads/acts on the
+  queue + todos your hub published — no Telegram, no drafting, and it can
+  never touch your hub's data (it writes only the same phone-safe fields the
+  iPhone does). Exactly one hub per Cloud project.
+
 ### How data flows
 The backend owns a **30-minute Telegram sweep** (plus on-demand): last 10
 messages per tracked chat, who-spoke-last, last-activity timestamps, and a

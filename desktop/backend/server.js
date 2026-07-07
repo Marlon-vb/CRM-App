@@ -186,6 +186,16 @@ async function startup() {
   console.log(`[DB] Opening ${DB_PATH}`);
   db._init_db(); // no seeding — Cadence boots empty by design
 
+  // CLIENT mode: this Mac is a read/act client of some OTHER Mac's hub. It
+  // owns no Telegram, runs no sweep, and — critically — never publishes.
+  // It reads the queue/todos a hub published and writes back only the
+  // phone-safe fields (routes branch on settings.isClient()). Boot nothing
+  // hub-related and return early so no timer/connection can ever push.
+  if (settings.isClient()) {
+    console.log("[mode] CLIENT — no Telegram, no sweep, no publish. Reads Cadence Cloud.");
+    return;
+  }
+
   // Soft dependency notes — these only affect specific endpoints.
   if (!drafting._HAS_ANTHROPIC) {
     console.log("[deps] anthropic SDK not installed — drafting/extraction return 503.");

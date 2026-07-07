@@ -107,7 +107,7 @@ const SkeletonRow = () => (
 );
 
 /* ── Empty state ── */
-const EmptyState = ({ view }) => (
+const EmptyState = ({ view, clientMode }) => (
   <div className="flex flex-col items-center justify-center" style={{ padding: "var(--space-16) var(--space-4)", textAlign: "center" }}>
     <div style={{
       width: 56, height: 56, borderRadius: "50%",
@@ -122,6 +122,8 @@ const EmptyState = ({ view }) => (
     <p style={{ fontSize: "var(--font-base)", color: "var(--text-muted)", marginTop: "var(--space-1)", maxWidth: 320 }}>
       {view === "myday"
         ? "Tasks due today or added to My Day will show up here."
+        : clientMode
+        ? "New todos come from your hub Mac."
         : "Add one above, or refresh from Telegram to pull in follow-ups from your chats."}
     </p>
   </div>
@@ -172,7 +174,7 @@ const Checkbox = ({ done, onToggle }) => {
 function TodoRow({
   todo, selected, focused, editing, completing, relationship,
   onSelect, onToggle, onStar, onDelete, onStartEdit, onCommitEdit, onCancelEdit, onOpenClient,
-  draggable,
+  draggable, clientMode,
 }) {
   const [hover, setHover] = useState(false);
   const [text, setText] = useState(todo.task);
@@ -317,26 +319,29 @@ function TodoRow({
         >
           <Star size={14} fill={todo.starred ? "var(--warning-soft)" : "none"} />
         </button>
-        <button
-          onClick={() => onDelete(todo)}
-          title="Delete task"
-          style={{
-            padding: "var(--space-1)", borderRadius: "var(--radius-sm)", border: "none", background: "transparent", cursor: "pointer",
-            color: "var(--text-faint)", opacity: hover ? 1 : 0,
-            transition: "opacity 120ms ease",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger-soft)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-faint)")}
-        >
-          <Trash2 size={14} />
-        </button>
+        {/* Delete is hub-only — a client can't mint or remove todos. */}
+        {!clientMode && (
+          <button
+            onClick={() => onDelete(todo)}
+            title="Delete task"
+            style={{
+              padding: "var(--space-1)", borderRadius: "var(--radius-sm)", border: "none", background: "transparent", cursor: "pointer",
+              color: "var(--text-faint)", opacity: hover ? 1 : 0,
+              transition: "opacity 120ms ease",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger-soft)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-faint)")}
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
 /* ── Detail pane ── */
-function DetailPane({ todo, relationship, onClose, onPatch, onDelete, onOpenClient }) {
+function DetailPane({ todo, relationship, onClose, onPatch, onDelete, onOpenClient, clientMode }) {
   const [task, setTask] = useState(todo.task);
   const [notes, setNotes] = useState(todo.notes || "");
   useEffect(() => { setTask(todo.task); setNotes(todo.notes || ""); }, [todo.id]);
@@ -369,13 +374,24 @@ function DetailPane({ todo, relationship, onClose, onPatch, onDelete, onOpenClie
         </button>
       </div>
 
+      {/* Client mode: task text/priority/due/notes are owned by the hub —
+          only complete, star, and My Day round-trip to cloud. Editing the
+          rest would silently no-op, so those controls are read-only here. */}
+      {clientMode && (
+        <div style={{ fontSize: "var(--font-sm)", color: "var(--text-faint)", lineHeight: 1.5 }}>
+          Task text, priority, and due date are set on your hub Mac. Here you
+          can complete, star, and add to My Day.
+        </div>
+      )}
+
       {/* Task text */}
       <div>
         <Label>Task</Label>
         <textarea
           value={task}
+          readOnly={clientMode}
           onChange={(e) => setTask(e.target.value)}
-          onBlur={() => { const t = task.trim(); if (t && t !== todo.task) onPatch(todo.id, { task: t }); else setTask(todo.task); }}
+          onBlur={() => { if (clientMode) return; const t = task.trim(); if (t && t !== todo.task) onPatch(todo.id, { task: t }); else setTask(todo.task); }}
           rows={2}
           style={{
             width: "100%", fontSize: "var(--font-md)", fontWeight: 500, color: "var(--text)",
@@ -423,10 +439,13 @@ function DetailPane({ todo, relationship, onClose, onPatch, onDelete, onOpenClie
             return (
               <button
                 key={p}
-                onClick={() => onPatch(todo.id, { priority: p })}
+                onClick={() => !clientMode && onPatch(todo.id, { priority: p })}
+                disabled={clientMode}
                 className="flex-1 inline-flex items-center justify-center"
                 style={{
-                  gap: "var(--space-1-5)", padding: "5px 0", borderRadius: "var(--radius-md)", fontSize: "var(--font-sm)", fontWeight: 600, cursor: "pointer",
+                  gap: "var(--space-1-5)", padding: "5px 0", borderRadius: "var(--radius-md)", fontSize: "var(--font-sm)", fontWeight: 600,
+                  cursor: clientMode ? "default" : "pointer",
+                  opacity: clientMode && !active ? 0.5 : 1,
                   background: active ? "var(--surface-3)" : "var(--surface-2)",
                   color: active ? "var(--text)" : "var(--text-muted)",
                   border: `1px solid ${active ? "var(--border-strong)" : "var(--border)"}`,
@@ -447,14 +466,16 @@ function DetailPane({ todo, relationship, onClose, onPatch, onDelete, onOpenClie
           <input
             type="date"
             value={todo.dueDate || ""}
-            onChange={(e) => onPatch(todo.id, { dueDate: e.target.value || null })}
+            disabled={clientMode}
+            onChange={(e) => !clientMode && onPatch(todo.id, { dueDate: e.target.value || null })}
             style={{
               flex: 1, fontSize: "var(--font-base)", color: "var(--text)",
               background: "var(--surface-2)", border: "1px solid var(--border)",
               borderRadius: "var(--radius-md)", padding: "var(--space-1-5) var(--space-2)", outline: "none", fontFamily: "inherit",
+              opacity: clientMode ? 0.6 : 1,
             }}
           />
-          {todo.dueDate && (
+          {todo.dueDate && !clientMode && (
             <button
               onClick={() => onPatch(todo.id, { dueDate: null })}
               title="Clear due date"
@@ -471,10 +492,11 @@ function DetailPane({ todo, relationship, onClose, onPatch, onDelete, onOpenClie
         <Label>Notes</Label>
         <textarea
           value={notes}
+          readOnly={clientMode}
           onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => { if (notes !== (todo.notes || "")) onPatch(todo.id, { notes }); }}
+          onBlur={() => { if (clientMode) return; if (notes !== (todo.notes || "")) onPatch(todo.id, { notes }); }}
           rows={3}
-          placeholder="Add a note…"
+          placeholder={clientMode ? "Notes are set on your hub" : "Add a note…"}
           style={{
             width: "100%", fontSize: "var(--font-base)", color: "var(--text)",
             background: "var(--surface-2)", border: "1px solid var(--border)",
@@ -539,24 +561,27 @@ function DetailPane({ todo, relationship, onClose, onPatch, onDelete, onOpenClie
         </div>
       )}
 
-      <button
-        onClick={() => onDelete(todo)}
-        className="inline-flex items-center justify-center"
-        style={{
-          gap: "var(--space-1-5)", padding: "7px 0", borderRadius: "var(--radius-md)", fontSize: "var(--font-base)", fontWeight: 600, cursor: "pointer",
-          background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)",
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger-soft)"; e.currentTarget.style.borderColor = "rgba(229,72,77,0.35)"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
-      >
-        <Trash2 size={13} /> Delete task
-      </button>
+      {/* Delete is hub-only. */}
+      {!clientMode && (
+        <button
+          onClick={() => onDelete(todo)}
+          className="inline-flex items-center justify-center"
+          style={{
+            gap: "var(--space-1-5)", padding: "7px 0", borderRadius: "var(--radius-md)", fontSize: "var(--font-base)", fontWeight: 600, cursor: "pointer",
+            background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger-soft)"; e.currentTarget.style.borderColor = "rgba(229,72,77,0.35)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
+        >
+          <Trash2 size={13} /> Delete task
+        </button>
+      )}
     </div>
   );
 }
 
 /* ═══════════════════ MAIN ═══════════════════ */
-export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, showToast }) => {
+export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, showToast, clientMode = false }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState("myday");           // "myday" | "all"
   const [selectedId, setSelectedId] = useState(null);
@@ -749,14 +774,15 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
       } else if (e.key === "Enter" && focusedId != null) {
         const t = todos.find((x) => x.id === focusedId);
         if (t) { e.preventDefault(); toggleComplete(t); }
-      } else if (e.key === "Delete" && focusedId != null) {
+      } else if (e.key === "Delete" && focusedId != null && !clientMode) {
+        // Keyboard-delete is hub-only — a client can't remove todos.
         const t = todos.find((x) => x.id === focusedId);
         if (t) { e.preventDefault(); removeTodo(t); }
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [focusedId, todos, toggleComplete, removeTodo]);
+  }, [focusedId, todos, toggleComplete, removeTodo, clientMode]);
 
   /* ── Derived lists ── */
   // Resolve a todo's linked relationship — Telegram-extracted todos carry a
@@ -858,7 +884,8 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
           </div>
         </div>
 
-        {/* Add task */}
+        {/* Add task — hub-only; a client can't mint todos. */}
+        {!clientMode && (
         <div
           className="flex items-center"
           style={{
@@ -895,6 +922,7 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
             n
           </span>
         </div>
+        )}
 
         {/* List */}
         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "var(--space-4)", paddingRight: "var(--space-0-5)" }}>
@@ -911,7 +939,7 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
               )}
 
               {activeCount === 0 && !refreshing ? (
-                <EmptyState view={view} />
+                <EmptyState view={view} clientMode={clientMode} />
               ) : (
                 grouped.map((g) => (
                   <div key={g.key}>
@@ -945,7 +973,8 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
                             editing={editingId === t.id}
                             completing={completing.has(t.id)}
                             relationship={t.relationshipId ? relationshipById[t.relationshipId] : null}
-                            draggable
+                            draggable={!clientMode}
+                            clientMode={clientMode}
                             onSelect={selectRow}
                             onOpenClient={onOpenClient}
                             onToggle={toggleComplete}
@@ -995,6 +1024,7 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
                           editing={editingId === t.id}
                           relationship={t.relationshipId ? relationshipById[t.relationshipId] : null}
                           draggable={false}
+                          clientMode={clientMode}
                           onSelect={selectRow}
                           onOpenClient={onOpenClient}
                           onToggle={toggleComplete}
@@ -1024,6 +1054,7 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
           onPatch={patchTodo}
           onDelete={removeTodo}
           onOpenClient={onOpenClient}
+          clientMode={clientMode}
         />
       )}
     </div>

@@ -55,6 +55,14 @@ const FIELDS = [
   // no publishes, a frozen phone. Empty string defaults to ENABLED (same
   // shape as cloudSyncEnabled); only the explicit "0" disables.
   "launchAtLogin",
+  // App mode: "hub" (default) OR "client". A HUB owns Telegram, sweeps,
+  // computes the queue, and PUBLISHES to cloud. A CLIENT owns none of that
+  // — it reads what a hub published and writes back only the phone-safe
+  // fields (todo flips, snoozes, promise status), exactly like the iPhone.
+  // This is what lets a second Mac track todos without becoming a rival
+  // hub that clobbers the real one. Empty string → hub (every existing
+  // install stays a hub).
+  "appMode",
 ];
 
 const STORE_FILE = path.join(DATA_DIR, "cadence-settings.dat");
@@ -221,6 +229,8 @@ function status() {
     userCompany: d.userCompany || "",
     userRole: d.userRole || "",
     launchAtLogin: (d.launchAtLogin || "") !== "0",
+    // "hub" | "client" — empty string defaults to hub (see FIELDS note).
+    mode: d.appMode === "client" ? "client" : "hub",
     cloud: {
       signedIn: Boolean(d.cloudAccessToken && d.cloudRefreshToken && d.cloudUserId),
       email: d.cloudUserEmail || "",
@@ -231,6 +241,11 @@ function status() {
     },
   };
 }
+
+// Mode predicates — the one place that decides hub vs client. Empty/unset
+// is a hub so no existing install silently loses its hub machinery.
+const isClient = () => get("appMode") === "client";
+const isHub = () => !isClient();
 
 const getAnthropicKey = () => get("anthropicKey");
 const getGranolaKey = () => get("granolaKey");
@@ -269,6 +284,8 @@ module.exports = {
   get,
   set,
   status,
+  isClient,
+  isHub,
   getAnthropicKey,
   getGranolaKey,
   getTelegramApiId,

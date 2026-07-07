@@ -224,6 +224,27 @@ mutation middleware (`_PUBLISH_PATH_RE` in routes.js — extend it when
 adding tables the phone sees), 5-min interval, manual. `deleted` todos
 sync as tombstones via a raw query — `list_todos` hides them.
 
+**Hub vs client mode — one hub per cloud project, or it clobbers.**
+`settings.appMode` is "hub" (default/empty) or "client"; `settings.isHub()`
+/ `isClient()` are the single decision point. A HUB owns Telegram, sweeps,
+computes the queue, and PUBLISHES. A CLIENT (a second Mac that just tracks
+todos) owns none of that: `server.js` returns early before any hub boot,
+and `publisher._enabled()` is gated on `isHub()` so a client can never
+push — which matters because the push deletes cloud rows it doesn't
+recognize, and a client's local db is empty/foreign. Client read/act goes
+through `backend/client.js` (cloud-backed `listTodos`/`listQueue`/`snooze`/
+`patchTodo`/…, the desktop twin of `mobile/src/lib/cloud.js`), and
+`routes.js` branches the read/act routes on `isClient()` — it writes ONLY
+the phone-safe fields (completed/starred/my_day, snoozes, promise status),
+exactly like the phone, so the hub's publisher PULL absorbs them. NEVER run
+two hubs against one Supabase project (colliding local_ids + queue keys).
+The client onboarding sets `appMode=client` BEFORE cloud sign-in so the
+sign-in's `publishSoon()` no-ops. Frontend: `App.jsx` `clientMode` hides the
+Clients tab + sweep machinery (polls cloud on `CLIENT_POLL_MS` instead) and
+threads `clientMode` into QueueView (triage-only, no draft/send — that needs
+the hub's Telegram; optimistic `hiddenKeys` since the hub owns the queue)
+and Todos (complete/star only; task/priority/due/notes read-only).
+
 ## Roadmap pointers
 
 Phases 5–6 (Expo iPhone app, hardening) are specified in `PLAN.md`. The

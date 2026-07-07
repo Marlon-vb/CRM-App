@@ -94,6 +94,7 @@ class QueueErrorBoundary extends Component {
 
 const QueueViewInner = ({
   compact = false,    // slim-column shell: single column, list ⇄ detail
+  clientMode = false, // this Mac reads a hub's published queue from cloud
   sweepStamp,         // App bumps this after each sweep lands → refetch
   onQueueChanged,     // notify App so the sidebar badge stays fresh
   onTodosChanged,     // refresh App's todos state after bundle completion
@@ -124,7 +125,23 @@ const QueueViewInner = ({
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
 
-  const items = queue?.items || [];
+  // Client mode: acting on a card (snooze/handled) writes to cloud, but the
+  // hub owns the queue — the card won't leave cadence_queue_items until the
+  // hub republishes (≤5 min). So the 45s poll would refetch it right back.
+  // hiddenKeys keeps acted cards hidden until a fresh publish (new sweptAt)
+  // clears the set — exactly the phone's approach. In hub mode it stays
+  // empty (the local rebuild removes acted items immediately).
+  const [hiddenKeys, setHiddenKeys] = useState(() => new Set());
+  const prevSweptRef = useRef(null);
+  useEffect(() => {
+    if (!clientMode) return;
+    if (queue?.sweptAt !== prevSweptRef.current) {
+      prevSweptRef.current = queue?.sweptAt;
+      setHiddenKeys(new Set());
+    }
+  }, [queue?.sweptAt, clientMode]);
+
+  const items = (queue?.items || []).filter((i) => !hiddenKeys.has(i.key));
   const current = items.find((i) => i.key === currentKey) || items[0] || null;
 
   // Compact (slim-column) mode shows ONE of list/detail at a time: tapping a
@@ -324,6 +341,7 @@ const QueueViewInner = ({
           label: "Undo",
           fn: async () => {
             await api.updateTodo(item.todoId, { completed: false });
+            if (clientMode) setHiddenKeys((s) => { const n = new Set(s); n.delete(item.key); return n; });
             onTodosChanged?.();
             refetch();
           },
@@ -350,6 +368,7 @@ const QueueViewInner = ({
             for (const id of completedTodoIds) {
               await api.updateTodo(id, { completed: false }).catch(() => {});
             }
+            if (clientMode) setHiddenKeys((s) => { const n = new Set(s); n.delete(item.key); return n; });
             onTodosChanged?.();
             refetch();
             refetchSnoozed();
@@ -357,11 +376,12 @@ const QueueViewInner = ({
         });
         refetchSnoozed();
       }
+      if (clientMode) setHiddenKeys((s) => new Set(s).add(item.key));
       advance(item.key);
     } catch (err) {
       showErrorToast?.(`Failed — ${err.message}`);
     }
-  }, [current, advance, refetch, refetchSnoozed, cancelPendingSend, onTodosChanged, showToast, showErrorToast]);
+  }, [current, advance, refetch, refetchSnoozed, cancelPendingSend, onTodosChanged, showToast, showErrorToast, clientMode]);
 
   const handleSnooze = useCallback(async (option) => {
     if (!current) return;
@@ -372,6 +392,7 @@ const QueueViewInner = ({
       label: "Undo",
       fn: async () => {
         await api.followupsUnsnooze(item.key);
+        if (clientMode) setHiddenKeys((s) => { const n = new Set(s); n.delete(item.key); return n; });
         refetch();
         refetchSnoozed();
       },
@@ -386,11 +407,12 @@ const QueueViewInner = ({
         showToast?.("Snoozed", undo);
       }
       refetchSnoozed();
+      if (clientMode) setHiddenKeys((s) => new Set(s).add(item.key));
       advance(item.key);
     } catch (err) {
       showErrorToast?.(`Snooze failed — ${err.message}`);
     }
-  }, [current, advance, refetch, refetchSnoozed, cancelPendingSend, showToast, showErrorToast]);
+  }, [current, advance, refetch, refetchSnoozed, cancelPendingSend, showToast, showErrorToast, clientMode]);
 
   // Skip / rail navigation deliberately do NOT touch a pending send — the
   // user confirmed it, and send state is keyed to its own card, so moving
@@ -514,11 +536,13 @@ const QueueViewInner = ({
           </span>
         )}
         <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)", marginLeft: "auto" }}>
-          {queue?.sweptAt ? `synced ${timeAgo(queue.sweptAt)}` : "no sweep yet"}
+          {queue?.sweptAt
+            ? `${clientMode ? "hub synced" : "synced"} ${timeAgo(queue.sweptAt)}`
+            : (clientMode ? "waiting for your hub" : "no sweep yet")}
         </span>
         <button
           onClick={() => { onSyncNow?.(); }}
-          title="Sweep Telegram now"
+          title={clientMode ? "Refresh from Cadence Cloud" : "Sweep Telegram now"}
           style={{
             display: "inline-flex", alignItems: "center", gap: "var(--space-1)",
             fontSize: "var(--font-xs)", fontWeight: 600, color: "var(--text-secondary)",
@@ -856,6 +880,30 @@ const QueueViewInner = ({
 
             {/* draft / actions */}
             {current.kind !== "todo" && current.relationshipId ? (
+              clientMode ? (
+              /* Client triage — no drafting/sending here (that needs the
+                 hub's Telegram session). Handle/snooze write to cloud; reply
+                 from the phone or the hub Mac. */
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", position: "relative", flexWrap: "wrap" }}>
+                <button onClick={handleDone} style={{ ...ghostBtn, background: "var(--success)", color: "#06281A", border: "none", fontWeight: 600, padding: "var(--space-2) var(--space-4)" }}>
+                  <CheckCircle2 size={13} /> Mark handled
+                </button>
+                <button onClick={() => setSnoozeOpen((o) => !o)} style={ghostBtn}><Clock size={12} /> Snooze ▾</button>
+                {snoozeOpen && (
+                  <div style={{ position: "absolute", top: 40, left: 0, width: 230, zIndex: 20, background: "var(--surface-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-xl)", boxShadow: "var(--shadow-popover)", padding: "var(--space-1)" }}>
+                    {[["tonight", "Tonight 18:00"], ["tomorrow", "Tomorrow 09:00"], ["nextweek", "Next week"], ["after_reply", "✦ After they reply"]].map(([opt, label]) => (
+                      <button key={opt} onClick={() => handleSnooze(opt)} className="pw-snooze-opt"
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "var(--space-2) var(--space-2-5)", borderRadius: "var(--radius-md)", fontSize: "var(--font-base)", color: opt === "after_reply" ? "var(--brand)" : "var(--text-secondary)", fontWeight: opt === "after_reply" ? 600 : 400, background: "none", border: "none", cursor: "pointer" }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>
+                  reply from your phone or hub Mac
+                </span>
+              </div>
+              ) : (
               <div style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-2xl)", boxShadow: "var(--shadow-card)", overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", padding: "var(--space-2-5) var(--space-4)", borderBottom: "1px solid var(--border-subtle)", fontSize: "var(--font-sm)", fontWeight: 600, color: draft && !draft.loading && !draft.error ? "var(--success-soft)" : "var(--text-secondary)" }}>
                   <Sparkles size={12} /> {draft && !draft.loading && !draft.error
@@ -949,6 +997,7 @@ const QueueViewInner = ({
                   )}
                 </div>
               </div>
+              )
             ) : (
               /* todo card actions */
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", position: "relative" }}>

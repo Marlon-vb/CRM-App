@@ -155,7 +155,28 @@ alive. Relaunch — the first sweep binds the chats. Re-running without
    ~860px and the full sidebar + two-pane layout returns; the size sticks
    across relaunches. ☑
 
-## I — If something fails
+## I — Client mode (second Mac)
+
+Set up on a Mac that is NOT your hub (your hub — the one with Telegram —
+keeps running):
+
+1. Fresh install → onboarding asks "How will you use this Mac?" → pick
+   **Track my todos from here (client)**. ☑
+2. Enter your project URL + anon key (from your hub's Settings → Cadence
+   Cloud → Set up iPhone, the two values under the QR), then sign in with
+   the same email/password. The app lands on the Queue. ☑
+3. Queue + Todos mirror your hub. There's **no Clients tab**, no Telegram
+   settings, no sweep bar — the header reads "hub synced Xm ago". ☑
+4. Open a queue card: you get **Mark handled** + **Snooze** (no reply
+   drafting/sending — "reply from your phone or hub Mac"). Handling a card
+   hides it; within ~5 min your hub republishes and it's gone for real. ☑
+5. Complete/star a todo here → within ~5 min it's done on the hub and the
+   phone too. Task text / priority / due are read-only ("set on your hub"). ☑
+6. **Safety check**: on the hub, your book is untouched — the client never
+   published anything. (`backend/server.js` logs `[mode] CLIENT` at boot;
+   `npm --prefix desktop test` covers "a client never pushes".) ☑
+
+## J — If something fails
 
 - **Backend logs**: launch from a terminal (`./dev_launch.command`) and read
   stdout — the dev API token prints as `[auth] API token (dev): …`, sweep

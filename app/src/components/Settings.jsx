@@ -517,9 +517,10 @@ function CloudSection({ showToast }) {
   );
 }
 
-export default function Settings({ showToast, onProfileSaved }) {
+export default function Settings({ showToast, onProfileSaved, mode = "hub" }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
+  const isClient = mode === "client";
 
   const reload = async () => {
     try {
@@ -535,12 +536,27 @@ export default function Settings({ showToast, onProfileSaved }) {
   return (
     <div style={{ maxWidth: 560 }} className="space-y-4">
       <p style={hintStyle}>
-        Connect Cadence to your own Telegram and AI accounts. Credentials are
-        stored encrypted on this Mac — nothing leaves your machine.
+        {isClient
+          ? "This Mac tracks your todos from Cadence Cloud. Sign in with the same account as your hub Mac and phone."
+          : "Connect Cadence to your own Telegram and AI accounts. Credentials are stored encrypted on this Mac — nothing leaves your machine."}
       </p>
       {error && <p style={{ fontSize: "var(--font-base)", color: "var(--danger-soft)" }}>{error}</p>}
       {!status ? (
         <p style={{ fontSize: "var(--font-md)", color: "var(--text-muted)" }}>Loading…</p>
+      ) : isClient ? (
+        <>
+          <p style={hintStyle}>
+            This Mac is a <strong>client</strong> — it reads the todos and
+            queue your hub Mac published to Cadence Cloud. Telegram, AI keys,
+            and reply drafting live on your hub.
+          </p>
+          <Section
+            title="Cadence Cloud"
+            desc="Publishes your queue and todos to your Supabase project after every sweep — the feed the iPhone app reads. Your Telegram session and API keys stay on this Mac."
+          >
+            <CloudSection showToast={showToast} />
+          </Section>
+        </>
       ) : (
         <>
           <Section

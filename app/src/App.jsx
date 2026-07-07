@@ -49,6 +49,9 @@ const PROGRESS_POLL_MS = 400;
 // Steady-state check for the backend's 30-min timer sweeps, which complete
 // with no frontend event — cheap (two local GETs) at once a minute.
 const SWEEP_WATCH_MS = 60 * 1000;
+// Client mode has no local sweep — it re-reads cloud on this cadence (and on
+// focus) so a hub republish + todo flips surface without a manual refresh.
+const CLIENT_POLL_MS = 45 * 1000;
 
 // ── Compact shell ──
 // Cadence's default window is a slim todo-list column (main.js opens at
@@ -104,6 +107,11 @@ export default function Cadence() {
   // Refetched after the Settings tab saves any profile field so the card
   // updates live.
   const [userProfile, setUserProfile] = useState({ userName: "", userRole: "", userCompany: "" });
+  // "hub" (default — full app) | "client" (this Mac reads what a hub
+  // published to Cadence Cloud; no Telegram, no sweep, no publish). Drives
+  // which surfaces show and whether the sweep machinery runs at all.
+  const [appMode, setAppMode] = useState("hub");
+  const clientMode = appMode === "client";
 
   // ── Telegram sweep progress ──
   // Real-percentage progress for the top-of-content bar, driven by polling
@@ -252,7 +260,16 @@ export default function Cadence() {
   const refreshSetupStatus = useCallback(async () => {
     try {
       const s = await api.getSetupStatus();
-      setSetupState(s.telegram || s.onboarded ? "ready" : "needed");
+      const mode = s.mode || "hub";
+      setAppMode(mode);
+      // A client is "ready" once it's signed into Cadence Cloud (there's
+      // nothing else to set up — no Telegram, no keys). A hub is ready once
+      // Telegram is connected or onboarding was completed/skipped.
+      if (mode === "client") {
+        setSetupState(s.cloud?.signedIn ? "ready" : "needed");
+      } else {
+        setSetupState(s.telegram || s.onboarded ? "ready" : "needed");
+      }
       setUserProfile({ userName: s.userName || "", userRole: s.userRole || "", userCompany: s.userCompany || "" });
     } catch (e) {
       setSetupState("ready");
@@ -278,6 +295,10 @@ export default function Cadence() {
     const ok = await refetchAll();
     if (!ok) return;
     refreshQueueSummary();
+    // A client owns no Telegram — there's no sweep to attach to or trigger.
+    // Its queue/todos come straight from cloud (refetchAll above); the
+    // steady-state poll keeps them fresh as the hub republishes.
+    if (clientMode) return;
     try {
       const last = await api.chatsLast();
       lastSweptAtRef.current = last?.sweptAt || null;
@@ -290,7 +311,7 @@ export default function Cadence() {
         if (stale) triggerSweep();
       }
     } catch { /* Telegram unconfigured — queue still builds from todos */ }
-  }, [refetchAll, refreshQueueSummary, startProgressPoll, triggerSweep]);
+  }, [refetchAll, refreshQueueSummary, startProgressPoll, triggerSweep, clientMode]);
 
   useEffect(() => {
     if (setupState !== "ready") return;
@@ -305,7 +326,7 @@ export default function Cadence() {
   // "Mac slept overnight, app regains focus" case so the queue isn't built
   // from yesterday's conversations.
   useEffect(() => {
-    if (setupState !== "ready" || backendStatus === "offline") return;
+    if (setupState !== "ready" || backendStatus === "offline" || clientMode) return;
     const onVisibilityChange = () => {
       if (document.hidden) return;
       const last = lastSweptAtRef.current;
@@ -318,7 +339,27 @@ export default function Cadence() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onVisibilityChange);
     };
-  }, [setupState, backendStatus, triggerSweep]);
+  }, [setupState, backendStatus, triggerSweep, clientMode]);
+
+  // ── Client-mode poll ──
+  // A client has no sweep to attach to — instead it re-reads cloud on a
+  // timer (and on focus) so todo flips + a hub republish show up without a
+  // manual refresh. Bumping sweepStamp is what makes QueueView refetch.
+  useEffect(() => {
+    if (setupState !== "ready" || !clientMode) return;
+    const poll = async () => {
+      if (document.hidden) return;
+      try { setHealth(await api.health()); } catch { /* keep last */ }
+      refetchAll();
+      refreshQueueSummary();
+      setSweepStamp(Date.now()); // QueueView refetches its queue on change
+    };
+    poll();
+    const id = setInterval(poll, CLIENT_POLL_MS);
+    const onFocus = () => poll();
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(id); window.removeEventListener("focus", onFocus); };
+  }, [setupState, clientMode, refetchAll, refreshQueueSummary]);
 
   // ── Steady-state watcher for backend timer sweeps + dependency health ──
   // The server sweeps on its own 30-min timer; without this, a focused app
@@ -330,7 +371,7 @@ export default function Cadence() {
   // key / stalled cloud sync surfaces as a persistent banner instead of
   // the queue silently going stale.
   useEffect(() => {
-    if (setupState !== "ready" || backendStatus === "offline") return;
+    if (setupState !== "ready" || backendStatus === "offline" || clientMode) return;
     const tick = async () => {
       try {
         setHealth(await api.health());
@@ -374,11 +415,29 @@ export default function Cadence() {
   // the record surface. The id scrolls-to + flashes the row (audit U6).
   const [focusClientId, setFocusClientId] = useState(null);
   const handleOpenClient = useCallback((relId = null) => {
+    if (clientMode) return; // no Clients tab in client mode — inert
     setFocusClientId(relId ?? null);
     setTab("clients");
-  }, [setTab]);
+  }, [setTab, clientMode]);
   const handleClientFocusHandled = useCallback(() => setFocusClientId(null), []);
   const openSettings = useCallback(() => setTab("settings"), [setTab]);
+
+  // The Queue's "Sync" button: a hub sweeps Telegram; a client just re-reads
+  // cloud (there's nothing to sweep).
+  const handleSyncNow = useCallback(() => {
+    if (clientMode) {
+      refetchAll();
+      refreshQueueSummary();
+      setSweepStamp(Date.now());
+    } else {
+      triggerSweep();
+    }
+  }, [clientMode, refetchAll, refreshQueueSummary, triggerSweep]);
+
+  // Client mode has no Clients tab — if the URL points there, fall back to
+  // the queue so the content column never renders a hub-only surface.
+  const navItems = clientMode ? NAV.filter((n) => n.key !== "clients") : NAV;
+  const effectiveTab = clientMode && tab === "clients" ? "queue" : tab;
 
   // Sidebar badge: todos that need attention today (overdue, due today, or My Day)
   const todoBadgeCount = useMemo(() => {
@@ -401,7 +460,7 @@ export default function Cadence() {
       >Loading Cadence…</div>
     );
   }
-  if (setupState === "needed") return <Onboarding onDone={handleOnboardingDone} />;
+  if (setupState === "needed") return <Onboarding mode={appMode} onDone={handleOnboardingDone} />;
   return (
     <div className="flex" style={{ minHeight: "100vh" }}>
       {/* Window drag region — strip at the very top so the user can grab the
@@ -448,9 +507,9 @@ export default function Cadence() {
             >
               C
             </div>
-            {NAV.map(item => {
+            {navItems.map(item => {
               const Icon = item.icon;
-              const active = tab === item.key;
+              const active = effectiveTab === item.key;
               const badgeCount = !item.dynamicBadge ? 0
                 : item.key === "queue" ? (fuSummary?.queueSize || 0)
                 : item.key === "todos" ? todoBadgeCount : 0;
@@ -542,9 +601,9 @@ export default function Cadence() {
 
           {/* Nav */}
           <nav style={{ flex: 1, overflowY: "auto" }}>
-            {NAV.map(item => {
+            {navItems.map(item => {
               const Icon = item.icon;
-              const active = tab === item.key;
+              const active = effectiveTab === item.key;
               const badgeCount = !item.dynamicBadge ? 0
                 : item.key === "queue" ? (fuSummary?.queueSize || 0)
                 : item.key === "todos" ? todoBadgeCount : 0;
@@ -677,7 +736,9 @@ export default function Cadence() {
           {/* Top-of-page Telegram sync bar — real percentage, visible from
               every tab. Driven by polling /api/chats/progress (see the sweep
               machinery above). Sits above the scroll container so it pins to
-              the very top of the content column. */}
+              the very top of the content column. A client never sweeps, so
+              it has no bar. */}
+          {!clientMode && (
           <div
             className={`cadence-progress${sweepProgress.active ? " is-active" : ""}`}
             role="progressbar"
@@ -686,6 +747,7 @@ export default function Cadence() {
           >
             <div className="cadence-progress__fill" style={{ width: `${sweepProgress.pct}%` }} />
           </div>
+          )}
 
           {/* Persistent dependency-failure banner — one at a time, highest
               priority first. This is what stands between "Telegram died
@@ -759,19 +821,22 @@ export default function Cadence() {
                 GET /api/followups/queue; refetches when sweepStamp changes
                 (a sweep completed). suggestions/onSuggestionsChanged feed the
                 "New conversations" block at the rail bottom. */}
-            {backendStatus !== "offline" && tab === "queue" && (
+            {backendStatus !== "offline" && effectiveTab === "queue" && (
               <>
-                <SetupBanner require="telegram" onOpenSettings={openSettings} />
-                <SetupBanner require="anthropic" onOpenSettings={openSettings} />
+                {/* Setup banners are hub-only prompts (connect Telegram / add
+                    a key) — a client has neither. */}
+                {!clientMode && <SetupBanner require="telegram" onOpenSettings={openSettings} />}
+                {!clientMode && <SetupBanner require="anthropic" onOpenSettings={openSettings} />}
                 <QueueView
                   compact={compact}
+                  clientMode={clientMode}
                   sweepStamp={sweepStamp}
                   suggestions={suggestions}
                   onSuggestionsChanged={handleSuggestionsChanged}
                   onQueueChanged={handleQueueChanged}
                   onTodosChanged={handleTodosChanged}
                   onOpenClient={handleOpenClient}
-                  onSyncNow={triggerSweep}
+                  onSyncNow={handleSyncNow}
                   showToast={showToast}
                   showErrorToast={showErrorToast}
                 />
@@ -779,21 +844,23 @@ export default function Cadence() {
             )}
 
             {/* TODOS VIEW */}
-            {backendStatus !== "offline" && tab === "todos" && (
+            {backendStatus !== "offline" && effectiveTab === "todos" && (
               <>
-                <SetupBanner require="anthropic" onOpenSettings={openSettings} />
+                {!clientMode && <SetupBanner require="anthropic" onOpenSettings={openSettings} />}
                 <Todos
                   relationships={relationships}
                   todos={todos}
                   setTodos={setTodos}
+                  clientMode={clientMode}
                   onOpenClient={handleOpenClient}
                   showToast={showToast}
                 />
               </>
             )}
 
-            {/* CLIENTS VIEW */}
-            {backendStatus !== "offline" && tab === "clients" && (
+            {/* CLIENTS VIEW — hub-only (editing the local book); never
+                reached in client mode (effectiveTab redirects to queue). */}
+            {backendStatus !== "offline" && !clientMode && effectiveTab === "clients" && (
               <Clients
                 relationships={relationships}
                 refetch={refetchAll}
@@ -804,8 +871,8 @@ export default function Cadence() {
             )}
 
             {/* SETTINGS VIEW */}
-            {backendStatus !== "offline" && tab === "settings" && (
-              <Settings showToast={showToast} onProfileSaved={refreshSetupStatus} />
+            {backendStatus !== "offline" && effectiveTab === "settings" && (
+              <Settings mode={appMode} showToast={showToast} onProfileSaved={refreshSetupStatus} />
             )}
           </div>
         </div>

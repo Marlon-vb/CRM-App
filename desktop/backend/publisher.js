@@ -54,7 +54,13 @@ function _newer(aIso, bIso) {
 }
 
 function _enabled() {
-  return settings.status().cloud.enabled && cloud.isSignedIn() && cloud.isConfigured();
+  // isHub() is the load-bearing guard: a CLIENT install must NEVER push —
+  // its local db is empty/foreign, and the push deletes cloud rows it
+  // doesn't recognize, which would wipe the real hub's published data.
+  // Defense-in-depth: server.js also never starts the interval in client
+  // mode, but gating here means even a stray publishSoon() call no-ops.
+  return settings.isHub() && settings.status().cloud.enabled &&
+    cloud.isSignedIn() && cloud.isConfigured();
 }
 
 // ── PULL: apply the phone's actions locally ─────────────────────────

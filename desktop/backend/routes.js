@@ -35,6 +35,7 @@ const cloud = require("./cloud");
 const publisher = require("./publisher");
 const health = require("./health");
 const notifier = require("./notifier");
+const clientMode = require("./client");
 
 // ── helpers ────────────────────────────────────────────────────────
 
@@ -157,8 +158,22 @@ app.use((req, res, next) => {
 // silently going stale — the audit's core trust finding.
 app.get("/api/health", (req, res) => {
   const s = settings.status();
+  // Client mode has no Telegram/sweep/extraction of its own — its only
+  // dependency is the cloud connection it reads from.
+  if (s.mode === "client") {
+    return res.json({
+      status: "ok",
+      mode: "client",
+      telegram: { configured: false, sweptAt: null },
+      anthropic: { configured: false },
+      granola: { configured: false },
+      cloud: publisher.status(),
+      deps: {},
+    });
+  }
   res.json({
     status: "ok",
+    mode: "hub",
     telegram: { configured: s.telegram, sweptAt: telegram.getLastSweep().sweptAt },
     anthropic: { configured: s.anthropic },
     granola: { configured: s.granola },
@@ -233,7 +248,7 @@ app.post("/api/setup/keys", wrap((req, res) => {
     "anthropicKey", "granolaKey", "telegramApiId", "telegramApiHash",
     "onboarded",
     "userName", "userCompany", "userRole",
-    "launchAtLogin",
+    "launchAtLogin", "appMode",
   ]) {
     if (k in body) updates[k] = body[k];
   }
@@ -270,7 +285,8 @@ app.post("/api/setup/telegram/logout", wrap(async (req, res) => {
 // Archived rows are INCLUDED — the Clients tab renders active + archived
 // (unarchive lives there). The queue engine and the sweep do their own
 // archived filtering, so this is a pure display concern.
-app.get("/api/relationships", wrap((req, res) => {
+app.get("/api/relationships", wrap(async (req, res) => {
+  if (settings.isClient()) return res.json(await clientMode.listRelationships());
   res.json(db.list_relationships(true));
 }));
 
@@ -404,8 +420,9 @@ app.post("/api/relationships/:id/send-message", wrap(async (req, res) => {
 
 // ── Todos ──────────────────────────────────────────────────────────
 
-app.get("/api/todos", wrap((req, res) => {
+app.get("/api/todos", wrap(async (req, res) => {
   const includeCompleted = parseBool(req.query.includeCompleted, true);
+  if (settings.isClient()) return res.json(await clientMode.listTodos(includeCompleted));
   res.json(db.list_todos(includeCompleted));
 }));
 
@@ -430,7 +447,9 @@ app.post("/api/todos/reorder", wrap((req, res) => {
   res.json(db.reorder_todos(ids));
 }));
 
-app.patch("/api/todos/:id", wrap((req, res) => {
+app.patch("/api/todos/:id", wrap(async (req, res) => {
+  // Client mode writes the phone-safe fields to cloud; the hub pulls them.
+  if (settings.isClient()) return res.json(await clientMode.patchTodo(idParam(req), req.body || {}));
   const todo = db.update_todo(idParam(req), req.body || {});
   if (todo === null) throw new HttpError(404, "Todo not found");
   res.json(todo);
@@ -470,7 +489,9 @@ app.post("/api/notes/sync", wrap(async (req, res) => {
 // depends on it) — the route feeds it the last sweep's chats and adds
 // `sweptAt` so the UI can show data age.
 
-app.get("/api/followups/queue", wrap((req, res) => {
+app.get("/api/followups/queue", wrap(async (req, res) => {
+  // Client mode reads the queue the hub published; no local build.
+  if (settings.isClient()) return res.json(await clientMode.listQueue());
   const last = telegram.getLastSweep();
   const result = followups.build_queue({ telegramData: last.chats || {} });
   // Acting in the app rebuilds the queue via this route — keep the tray
@@ -479,21 +500,24 @@ app.get("/api/followups/queue", wrap((req, res) => {
   res.json({ ...result, sweptAt: last.sweptAt ?? null });
 }));
 
-app.post("/api/followups/snooze", wrap((req, res) => {
+app.post("/api/followups/snooze", wrap(async (req, res) => {
   const { itemKey, mode, until, lastInboundAt } = req.body || {};
   if (!itemKey) throw new HttpError(400, "itemKey required");
+  if (settings.isClient()) return res.json(await clientMode.snooze(itemKey, mode, until, lastInboundAt));
   res.json(db.set_fu_snooze(itemKey, mode, until, lastInboundAt));
 }));
 
-app.post("/api/followups/unsnooze", wrap((req, res) => {
+app.post("/api/followups/unsnooze", wrap(async (req, res) => {
   const { itemKey } = req.body || {};
   if (!itemKey) throw new HttpError(400, "itemKey required");
+  if (settings.isClient()) return res.json(await clientMode.unsnooze(itemKey));
   res.json(db.clear_fu_snooze(itemKey));
 }));
 
 // Everything currently parked, with human labels — powers the "Snoozed (n)"
 // drawer so mark-handled/snooze stop being an invisible state (audit C7).
-app.get("/api/followups/snoozes", wrap((req, res) => {
+app.get("/api/followups/snoozes", wrap(async (req, res) => {
+  if (settings.isClient()) return res.json(await clientMode.listSnoozes());
   const snoozes = db.list_fu_snoozes();
   const relById = new Map(db.list_relationships(true).map((r) => [r.id, r]));
   const rows = Object.entries(snoozes).map(([itemKey, s]) => {
@@ -525,8 +549,9 @@ app.get("/api/followups/promises", wrap((req, res) => {
   res.json(db.list_fu_promises(relationshipId, status));
 }));
 
-app.patch("/api/followups/promises/:id", wrap((req, res) => {
+app.patch("/api/followups/promises/:id", wrap(async (req, res) => {
   const status = (req.body || {}).status || "kept";
+  if (settings.isClient()) return res.json(await clientMode.resolvePromise(idParam(req), status));
   res.json(db.resolve_fu_promise(idParam(req), status));
 }));
 
@@ -585,6 +610,8 @@ app.get("/api/chats/last", wrap((req, res) => {
 // ── New-conversation suggestions ───────────────────────────────────
 
 app.get("/api/suggestions", wrap((req, res) => {
+  // Suggestions come from the hub's sweep — a client has none of its own.
+  if (settings.isClient()) return res.json([]);
   const s = String(req.query.status || "pending").toLowerCase();
   if (!["pending", "accepted", "dismissed"].includes(s)) {
     throw new HttpError(400, "invalid status; use pending|accepted|dismissed");
