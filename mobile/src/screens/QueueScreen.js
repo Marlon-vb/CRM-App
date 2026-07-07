@@ -197,9 +197,22 @@ function QueueCard({ item, index, onActed, onError }) {
   );
 }
 
-export default function QueueScreen({ queue, refreshing, onRefresh, onActed, onError }) {
+export default function QueueScreen({ queue, sync, refreshing, onRefresh, onActed, onError }) {
   const hidden = queue.hiddenKeys || new Set();
   const visible = (queue.items || []).filter((i) => !hidden.has(i.key));
+
+  // Honest states (audit C1): "All clear" is only earned by a successful
+  // fetch. Before that it's "checking"; on persistent failure it's an
+  // error; and old data gets a staleness banner instead of quiet confidence.
+  const neverFetched = !sync?.lastFetchAt;
+  const fetchFailing = Boolean(sync?.lastError);
+  const publishAgeMs = sync?.lastPublishAt ? Date.now() - new Date(sync.lastPublishAt).getTime() : null;
+  const macQuiet = publishAgeMs != null && publishAgeMs > 90 * 60 * 1000; // > 3 sweep intervals
+  const banner = fetchFailing
+    ? { color: "#E5747A", text: `Can't reach Cadence Cloud — showing ${neverFetched ? "nothing" : "old data"}, not zero. Pull to retry.` }
+    : macQuiet
+      ? { color: "#F5C242", text: `The Mac hasn't published in ${Math.round(publishAgeMs / 3600000)}h — is it running?` }
+      : null;
   const sections = KIND_ORDER
     .map((kind) => ({
       title: KIND_META[kind].label,
@@ -218,14 +231,24 @@ export default function QueueScreen({ queue, refreshing, onRefresh, onActed, onE
       <View style={s.header}>
         <View>
           <Text style={s.headerTitle}>
-            {visible.length === 0 ? "All clear" : `${visible.length} need you`}
+            {neverFetched ? "Checking…" : visible.length === 0 ? (fetchFailing ? "Unknown" : "All clear") : `${visible.length} need you`}
           </Text>
           <Text style={s.headerMeta}>
             {visible.length > 0 ? `≈${eta} min to clear · ` : ""}
-            {queue.sweptAt ? `swept ${timeAgo(queue.sweptAt)}` : "waiting for the Mac"}
+            {queue.sweptAt
+              ? `swept ${timeAgo(queue.sweptAt)}`
+              : sync?.lastPublishAt
+                ? `published ${timeAgo(sync.lastPublishAt)}`
+                : "waiting for the Mac"}
           </Text>
         </View>
       </View>
+
+      {banner && (
+        <View style={[s.banner, { borderColor: banner.color }]}>
+          <Text style={[s.bannerText, { color: banner.color }]}>{banner.text}</Text>
+        </View>
+      )}
 
       {counts.length > 1 && (
         <View style={s.statStrip}>
@@ -255,14 +278,26 @@ export default function QueueScreen({ queue, refreshing, onRefresh, onActed, onE
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.textFaint} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 90, paddingTop: 4 }}
         ListEmptyComponent={
-          <View style={s.empty}>
-            <Text style={s.emptyEmoji}>🎾</Text>
-            <Text style={s.emptyBig}>Queue zero.</Text>
-            <Text style={s.emptyText}>
-              Every conversation is where it should be. Go enjoy it — the Mac
-              is watching your chats.
-            </Text>
-          </View>
+          neverFetched || fetchFailing ? (
+            <View style={s.empty}>
+              <Text style={s.emptyEmoji}>{fetchFailing ? "📡" : "⏳"}</Text>
+              <Text style={s.emptyBig}>{fetchFailing ? "Can't reach the cloud." : "Checking…"}</Text>
+              <Text style={s.emptyText}>
+                {fetchFailing
+                  ? "This is a connection problem, not an empty queue. Pull to retry."
+                  : "Fetching your queue from Cadence Cloud."}
+              </Text>
+            </View>
+          ) : (
+            <View style={s.empty}>
+              <Text style={s.emptyEmoji}>🎾</Text>
+              <Text style={s.emptyBig}>Queue zero.</Text>
+              <Text style={s.emptyText}>
+                Every conversation is where it should be. Go enjoy it — the Mac
+                is watching your chats.
+              </Text>
+            </View>
+          )
         }
         stickySectionHeadersEnabled={false}
       />
@@ -272,6 +307,11 @@ export default function QueueScreen({ queue, refreshing, onRefresh, onActed, onE
 
 const s = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8 },
+  banner: {
+    marginHorizontal: 16, marginBottom: 6, borderWidth: 1, borderRadius: 10,
+    paddingVertical: 8, paddingHorizontal: 12, backgroundColor: "rgba(0,0,0,0.25)",
+  },
+  bannerText: { fontSize: 12.5, fontWeight: "600", lineHeight: 17 },
   headerTitle: { color: C.text, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
   headerMeta: { color: C.textFaint, fontSize: 12.5, marginTop: 2 },
   statStrip: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 6 },

@@ -98,10 +98,12 @@ const QueueViewInner = ({
   onTodosChanged,     // refresh App's todos state after bundle completion
   onSuggestionsChanged, // accept/dismiss changed relationships/suggestions — App refetches
   onOpenClient,       // open a relationship in the Clients tab
+  onSyncNow,          // manual Telegram sweep (App's triggerSweep)
   showToast,
   showErrorToast,
 }) => {
   const [queue, setQueue] = useState(null);     // { items, summary, sweptAt }
+  const [fetchError, setFetchError] = useState(null); // last failed queue fetch
   const [loading, setLoading] = useState(true);
   const [currentKey, setCurrentKey] = useState(null);
   const [drafts, setDrafts] = useState({});     // key → { text, loading, error }
@@ -122,11 +124,15 @@ const QueueViewInner = ({
   const items = queue?.items || [];
   const current = items.find((i) => i.key === currentKey) || items[0] || null;
 
-  /* ── fetch the queue (backend-owned cache — GET, no payload) ── */
+  /* ── fetch the queue (backend-owned cache — GET, no payload) ──
+     A failed fetch must NEVER paint the celebratory zero state — the
+     audit's top Mac finding. `fetchError` renders its own card and the
+     zero state requires a successful fetch. */
   const refetch = useCallback(async (keepCurrent = true) => {
     try {
       const data = await api.followupsQueue();
       setQueue(data);
+      setFetchError(null);
       onQueueChanged?.(data.summary);
       setCurrentKey((prev) =>
         keepCurrent && data.items.some((i) => i.key === prev)
@@ -134,11 +140,11 @@ const QueueViewInner = ({
           : (data.items[0]?.key ?? null)
       );
     } catch (err) {
-      showErrorToast?.(`Queue failed — ${err.message}`);
+      setFetchError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [onQueueChanged, showErrorToast]);
+  }, [onQueueChanged]);
 
   /* ── fetch pending suggestions (rail bottom) — best-effort, a failure
         here must never block the queue itself ── */
@@ -430,7 +436,56 @@ const QueueViewInner = ({
   }
 
   return (
-    <div style={{ display: "flex", gap: "var(--space-4)", alignItems: "flex-start" }}>
+    <div>
+      {/* ── QUEUE HEADER — data age is the core trust signal ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
+        <span style={{ fontSize: "var(--font-md)", fontWeight: 700, color: "var(--text)" }}>
+          {items.length > 0 ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Queue"}
+        </span>
+        {queue?.summary?.etaMinutes > 0 && (
+          <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>
+            ≈{queue.summary.etaMinutes} min
+          </span>
+        )}
+        <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)", marginLeft: "auto" }}>
+          {queue?.sweptAt ? `synced ${timeAgo(queue.sweptAt)}` : "no sweep yet"}
+        </span>
+        <button
+          onClick={() => { onSyncNow?.(); }}
+          title="Sweep Telegram now"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: "var(--space-1)",
+            fontSize: "var(--font-xs)", fontWeight: 600, color: "var(--text-secondary)",
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            borderRadius: "var(--radius-md)", padding: "var(--space-1) var(--space-2)",
+            cursor: "pointer",
+          }}
+        >
+          <RefreshCw size={11} /> Sync
+        </button>
+      </div>
+
+      {/* A failed fetch gets its own card — never the celebration. */}
+      {fetchError && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: "var(--space-3)",
+          border: "1px solid var(--danger-soft)", borderRadius: "var(--radius-xl)",
+          background: "var(--tone-red-bg)", color: "var(--tone-red-fg)",
+          padding: "var(--space-3) var(--space-4)", marginBottom: "var(--space-3)",
+        }}>
+          <span style={{ fontSize: "var(--font-base)", fontWeight: 600, flex: 1 }}>
+            Couldn't build the queue — {fetchError}. Showing an error, not an empty queue.
+          </span>
+          <button
+            onClick={() => { setLoading(true); refetch(); }}
+            style={{ background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "var(--space-1) var(--space-2-5)", fontSize: "var(--font-sm)", fontWeight: 600, cursor: "pointer" }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: "var(--space-4)", alignItems: "flex-start" }}>
       {/* ── RAIL ── */}
       <aside style={{ width: 280, flexShrink: 0 }}>
         {KIND_ORDER.map((kind) => {
@@ -559,6 +614,9 @@ const QueueViewInner = ({
       {/* ── STAGE ── */}
       <div style={{ flex: 1, maxWidth: 660, minWidth: 0 }}>
         {!current ? (
+          // The celebration REQUIRES a successful fetch — an errored fetch
+          // renders the error card above and nothing here.
+          fetchError ? null : (
           <div className="pw-reveal" style={{ textAlign: "center", padding: "var(--space-16) var(--space-5)" }}>
             <div className="pw-ball" style={{ fontSize: 40, display: "inline-block" }}>🎾</div>
             <h2 style={{ fontSize: "var(--font-3xl)", fontWeight: 800, letterSpacing: "-0.03em", margin: "var(--space-3) 0 var(--space-2)", color: "var(--text)" }}>
@@ -570,6 +628,7 @@ const QueueViewInner = ({
                 : "Nothing needs you right now — every conversation is within cadence."}
             </p>
           </div>
+          )
         ) : (
           <div key={current.key} className="pw-stage-in">
             {/* why banner */}
@@ -784,6 +843,7 @@ const QueueViewInner = ({
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

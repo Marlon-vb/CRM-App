@@ -44,6 +44,9 @@ export default function App() {
   const [todos, setTodos] = useState([]);
   const [relationships, setRelationships] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  // Honest-state tracking (audit C1/C5): "All clear" is only earned by a
+  // successful fetch; failures and auth death must be visible, not silent.
+  const [sync, setSync] = useState({ lastFetchAt: null, lastError: null, lastPublishAt: null });
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
@@ -56,8 +59,9 @@ export default function App() {
   const refetch = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
     try {
-      const [q, t, r] = await Promise.all([
+      const [q, t, r, lastPublishAt] = await Promise.all([
         cloud.fetchQueue(), cloud.fetchTodos(), cloud.fetchRelationships(),
+        cloud.fetchLastPublish().catch(() => null),
       ]);
       // A fresh publish recomputed the queue — acted-on cards either
       // vanished server-side or genuinely resurfaced; reset local hiding.
@@ -67,9 +71,16 @@ export default function App() {
       }));
       setTodos(t || []);
       setRelationships(r || []);
+      setSync({ lastFetchAt: Date.now(), lastError: null, lastPublishAt });
     } catch (e) {
+      // A dead session must route to sign-in, not rot silently (audit C5).
+      if (e.code === "AUTH") {
+        await cloud.signOut();
+        setSession(null);
+        return;
+      }
+      setSync((prev) => ({ ...prev, lastError: e.message }));
       if (manual) showToast(e.message, true);
-      // silent on background polls — next tick retries
     } finally {
       if (manual) setRefreshing(false);
     }
@@ -137,7 +148,7 @@ export default function App() {
       <View style={{ flex: 1 }}>
         {tab === "queue" && (
           <QueueScreen
-            queue={queue} refreshing={refreshing}
+            queue={queue} sync={sync} refreshing={refreshing}
             onRefresh={() => refetch(true)}
             onActed={handleActed}
             onError={(m) => showToast(m, true)}

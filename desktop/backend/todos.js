@@ -499,6 +499,16 @@ async function extract_todos(force = false) {
     return { ..._cache.summary, inserted: [], skipped: 0, cached: true };
   }
 
+  // Preflight the LLM BEFORE the expensive Telegram walk — a missing key
+  // used to burn a full 60-chat fetch every 30 minutes just to fail at
+  // the extraction call.
+  if (!_HAS_ANTHROPIC) {
+    throw _svc503("anthropic SDK not installed — run `npm install` in the desktop/ folder.");
+  }
+  if (!settings.getAnthropicKey()) {
+    throw _svc503("Anthropic API key not set — add it in Cadence Settings.");
+  }
+
   const conversations = await telegram._fetch_recent_conversations(30, 60, 60);
   const existing = db.list_todos(true, 45);
   const raw = await _llm_extract(conversations, existing);

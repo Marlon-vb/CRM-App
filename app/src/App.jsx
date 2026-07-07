@@ -20,6 +20,30 @@ const DEFAULT_TAB = "queue";
 // The backend sweeps on its own 30-min timer (server.js); this constant only
 // drives the client-side staleness check on focus/visibility resume, so it
 // matches desktop/backend/config.js SWEEP_INTERVAL_MS.
+// One problem banner at a time — highest-priority failure wins. Missing
+// keys are deliberately NOT problems here (SetupBanner owns "not set up
+// yet"); this surface is for things that WERE working and silently died.
+function deriveHealthProblem(health) {
+  if (!health) return null;
+  const deps = health.deps || {};
+  if (health.telegram?.configured && deps.sweep?.error) {
+    return { action: "sweep", text: `Telegram sync is failing — ${deps.sweep.error}` };
+  }
+  if (health.cloud?.signedIn === false && /expired/i.test(health.cloud?.lastError || "")) {
+    return { action: "settings", text: "Cadence Cloud session expired — the iPhone is no longer updating." };
+  }
+  if (health.cloud?.signedIn && health.cloud?.lastError) {
+    return { action: "settings", text: `Cloud publish is failing — ${health.cloud.lastError}` };
+  }
+  if (health.anthropic?.configured && deps.todos?.error) {
+    return { action: "settings", text: `Todo/draft AI is failing — ${deps.todos.error}` };
+  }
+  if (health.granola?.configured && deps.granola?.error) {
+    return { action: "settings", text: `Granola sync is failing — ${deps.granola.error}` };
+  }
+  return null;
+}
+
 const SWEEP_STALE_MS = 30 * 60 * 1000;
 const PROGRESS_POLL_MS = 400;
 // Steady-state check for the backend's 30-min timer sweeps, which complete
@@ -72,6 +96,10 @@ export default function Cadence() {
   // until GET /api/chats/last shows a fresh sweptAt, then snap to 100% and
   // fade after 600ms.
   const [sweepProgress, setSweepProgress] = useState({ active: false, pct: 0, phase: "" });
+  // Dependency health from GET /api/health (refreshed on the watcher tick).
+  // Drives the persistent problem banner — one banner, highest priority
+  // failure wins, so a broken morning reads as one clear instruction.
+  const [health, setHealth] = useState(null);
   // Bumped to the new sweptAt each time a sweep completes while the app is
   // open — QueueView refetches its queue whenever this changes.
   const [sweepStamp, setSweepStamp] = useState(null);
@@ -273,15 +301,21 @@ export default function Cadence() {
     };
   }, [setupState, backendStatus, triggerSweep]);
 
-  // ── Steady-state watcher for backend timer sweeps ──
+  // ── Steady-state watcher for backend timer sweeps + dependency health ──
   // The server sweeps on its own 30-min timer; without this, a focused app
   // left open never learns those sweeps landed and the queue goes stale.
   // On a new sweptAt: refresh the same state finishSweep would, minus the
   // progress-bar flash (a background refresh the user didn't ask for
   // shouldn't animate). If a sweep is mid-flight, attach the live bar.
+  // The same tick reads /api/health so a dead Telegram session / broken
+  // key / stalled cloud sync surfaces as a persistent banner instead of
+  // the queue silently going stale.
   useEffect(() => {
     if (setupState !== "ready" || backendStatus === "offline") return;
-    const id = setInterval(async () => {
+    const tick = async () => {
+      try {
+        setHealth(await api.health());
+      } catch { /* backend hiccup — banner keeps last known state */ }
       if (progressPollRef.current) return; // already tracking a sweep
       try {
         const progress = await api.chatsProgress();
@@ -297,7 +331,9 @@ export default function Cadence() {
           refetchAll();
         }
       } catch { /* backend hiccup — next tick retries */ }
-    }, SWEEP_WATCH_MS);
+    };
+    tick(); // immediate first read so banners don't wait a minute
+    const id = setInterval(tick, SWEEP_WATCH_MS);
     return () => clearInterval(id);
   }, [setupState, backendStatus, startProgressPoll, refreshQueueSummary, refetchAll]);
 
@@ -544,6 +580,42 @@ export default function Cadence() {
             <div className="cadence-progress__fill" style={{ width: `${sweepProgress.pct}%` }} />
           </div>
 
+          {/* Persistent dependency-failure banner — one at a time, highest
+              priority first. This is what stands between "Telegram died
+              Tuesday" and "the queue looked healthy all week". */}
+          {(() => {
+            const problem = deriveHealthProblem(health);
+            if (!problem) return null;
+            return (
+              <div
+                className="flex items-center gap-3 px-4 py-2 border-b"
+                style={{ background: "var(--tone-amber-bg)", borderColor: "var(--border)", color: "var(--warning)" }}
+                role="alert"
+              >
+                <span style={{ fontSize: "var(--font-sm)", fontWeight: 600, flex: 1, minWidth: 0 }}>
+                  {problem.text}
+                </span>
+                {problem.action === "sweep" ? (
+                  <button
+                    onClick={triggerSweep}
+                    className="px-2.5 py-1 rounded-md text-xs font-semibold"
+                    style={{ background: "var(--surface)", color: "var(--text)" }}
+                  >
+                    Retry sync
+                  </button>
+                ) : (
+                  <button
+                    onClick={openSettings}
+                    className="px-2.5 py-1 rounded-md text-xs font-semibold"
+                    style={{ background: "var(--surface)", color: "var(--text)" }}
+                  >
+                    Open Settings
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Content */}
           <div className="flex-1 overflow-auto p-6">
             {backendStatus === "offline" && (
@@ -591,6 +663,7 @@ export default function Cadence() {
                   onQueueChanged={handleQueueChanged}
                   onTodosChanged={handleTodosChanged}
                   onOpenClient={handleOpenClient}
+                  onSyncNow={triggerSweep}
                   showToast={showToast}
                   showErrorToast={showErrorToast}
                 />

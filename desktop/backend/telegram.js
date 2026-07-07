@@ -123,6 +123,39 @@ function _persistLastSweep() {
   }
 }
 
+/* A reply just went out: patch the cached aggregate so the very next queue
+   build sees waiting_on:"them" instead of resurrecting the reply card until
+   the next sweep (the audit's highest-frequency trust breaker). The send
+   route calls this, then sweepSoon() re-reads reality shortly after —
+   this patch just covers the gap. In-memory the rel:/group keys alias one
+   object, so a single mutation fixes every lookup path; after a disk
+   round-trip they're separate copies, which is why we patch by iterating
+   all keys that point at this relationship. */
+function noteOutboundMessage(relationshipId, sent) {
+  const msg = {
+    id: sent && sent.message_id != null ? sent.message_id : null,
+    text: (sent && sent.text ? String(sent.text) : "").slice(0, 200),
+    sender: "me",
+    is_me: true,
+    date: (sent && sent.date) || new Date().toISOString(),
+    has_pdf: false,
+    pdf_filename: null,
+  };
+  let touched = false;
+  const seen = new Set();
+  for (const entry of Object.values(_lastSweep.chats || {})) {
+    if (!entry || entry.relationship_id !== relationshipId || !entry.matched) continue;
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    entry.messages = [msg, ...(entry.messages || [])].slice(0, 10);
+    entry.last_message = msg;
+    entry.waiting_on = "them";
+    touched = true;
+  }
+  if (touched) _persistLastSweep();
+  return touched;
+}
+
 // ── action summary generator ────────────────────────────────────────
 
 const _TOPIC_MAP = [
@@ -1217,6 +1250,7 @@ module.exports = {
   telegramLogout,
   // sweep
   sweep,
+  noteOutboundMessage,
   sweepSoon,
   setSweepRunner,
   runSweepCycle,

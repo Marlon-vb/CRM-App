@@ -98,14 +98,36 @@ export async function signOut() {
   await _storage.deleteItem(_KEYS.session);
 }
 
-async function _refresh() {
-  const session = await getSession();
-  if (!session) throw new Error("Not signed in.");
-  const data = await _auth("token?grant_type=refresh_token", {
-    refresh_token: session.refreshToken,
-  });
-  if (!data.access_token) throw new Error("Session expired — sign in again.");
-  return _persistSession(data);
+function _authError(message) {
+  const e = new Error(message);
+  e.code = "AUTH"; // definitive: the session is dead, re-login required
+  return e;
+}
+
+// Single-flight refresh: three parallel fetches racing the same refresh
+// token would brick a healthy session under GoTrue token rotation (the
+// audit's C5). Everyone awaits the one in-flight refresh.
+let _refreshPromise = null;
+
+function _refresh() {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    const session = await getSession();
+    if (!session) throw _authError("Not signed in.");
+    let data;
+    try {
+      data = await _auth("token?grant_type=refresh_token", {
+        refresh_token: session.refreshToken,
+      });
+    } catch (e) {
+      // GoTrue answers 400/401 with invalid_grant for dead refresh tokens —
+      // tag it so the app can route to sign-in instead of retrying forever.
+      throw _authError("Session expired — sign in again.");
+    }
+    if (!data.access_token) throw _authError("Session expired — sign in again.");
+    return _persistSession(data);
+  })();
+  return _refreshPromise.finally(() => { _refreshPromise = null; });
 }
 
 async function _accessToken() {
@@ -151,6 +173,17 @@ export async function fetchQueue() {
     items: (rows || []).map((r) => ({ ...r.payload, key: r.item_key, kind: r.kind, urgency: r.urgency })),
     sweptAt: rows && rows[0] ? rows[0].swept_at : null,
   };
+}
+
+// When did the Mac last publish ANYTHING? A genuinely empty queue has no
+// queue rows to carry swept_at (the audit's false-"waiting for the Mac"),
+// so we read the newest relationship row's updated_at — the publisher
+// touches every relationship on every push.
+export async function fetchLastPublish() {
+  const rows = await rest(
+    "cadence_relationships?select=updated_at&order=updated_at.desc&limit=1"
+  );
+  return rows && rows[0] ? rows[0].updated_at : null;
 }
 
 export async function fetchTodos() {

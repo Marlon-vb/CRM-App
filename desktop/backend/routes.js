@@ -33,6 +33,7 @@ const granola = require("./granola");
 const followups = require("./followups");
 const cloud = require("./cloud");
 const publisher = require("./publisher");
+const health = require("./health");
 
 // ── helpers ────────────────────────────────────────────────────────
 
@@ -149,7 +150,21 @@ app.use((req, res, next) => {
 
 // ── Health ─────────────────────────────────────────────────────────
 
-app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+// Liveness + dependency health. `deps` carries the background ledger
+// (sweep/todos/promises/granola errors with lastOkAt) so both UIs can
+// render a persistent "something is broken" banner instead of the queue
+// silently going stale — the audit's core trust finding.
+app.get("/api/health", (req, res) => {
+  const s = settings.status();
+  res.json({
+    status: "ok",
+    telegram: { configured: s.telegram, sweptAt: telegram.getLastSweep().sweptAt },
+    anthropic: { configured: s.anthropic },
+    granola: { configured: s.granola },
+    cloud: publisher.status(),
+    deps: health.get(),
+  });
+});
 
 // ── Cloud publish (Phase 4 — the iPhone reads what this pushes) ─────
 
@@ -360,6 +375,16 @@ app.post("/api/relationships/:id/send-message", wrap(async (req, res) => {
       /* best-effort */
     }
   }
+  // Close the staleness loop: patch the sweep cache NOW so the reply card
+  // doesn't resurrect on the next queue build, schedule a real sweep to
+  // confirm, and republish so the phone stops showing the dead card too.
+  try {
+    telegram.noteOutboundMessage(relationship.id, result);
+  } catch (e) {
+    /* best-effort */
+  }
+  if (settings.status().telegram) telegram.sweepSoon();
+  publisher.publishSoon();
   res.json(result);
 }));
 

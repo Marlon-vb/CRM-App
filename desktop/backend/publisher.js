@@ -257,9 +257,17 @@ async function syncNow(reason = "manual") {
     );
     return { ok: true, ...pushed };
   } catch (e) {
-    _lastError = e.message;
+    // A definitive auth failure (refresh token dead) will fail identically
+    // forever — clear the session so status() flips to signed-out and the
+    // Settings UI shows "sign in again" instead of a groundhog-day error.
+    if (e.status === 401) {
+      try { await cloud.signOut(); } catch (e2) { /* best-effort */ }
+      _lastError = "Session expired — sign in again in Settings → Cadence Cloud.";
+    } else {
+      _lastError = e.message;
+    }
     console.error(`[cloud] ${reason} sync failed: ${e.message}`);
-    return { ok: false, error: e.message };
+    return { ok: false, error: _lastError };
   } finally {
     _inFlight = false;
   }

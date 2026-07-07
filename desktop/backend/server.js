@@ -29,6 +29,7 @@ const followups = require("./followups");
 const drafting = require("./drafting");
 const granola = require("./granola");
 const publisher = require("./publisher");
+const health = require("./health");
 const { app, printEndpointList } = require("./routes");
 
 // ── background sweep loop ──────────────────────────────────────────
@@ -53,8 +54,10 @@ async function _runSweepCycle(reason) {
   let result;
   try {
     result = await telegram.sweep();
+    health.record("sweep", null);
   } catch (e) {
     console.error(`[sweep] ${reason} sweep failed: ${e.message}`);
+    health.record("sweep", e.message);
     return;
   }
   if (!result || result.alreadyRunning) return;
@@ -68,6 +71,21 @@ async function _runSweepCycle(reason) {
       `${result.newSuggestions.length} new suggestion(s)`
   );
 
+  // Granola note sync — deliberately OUTSIDE the LLM path. The audit found
+  // recap cards silently dying with a broken Anthropic key because note
+  // sync only happened inside todo extraction. Notes (and the client
+  // suggestions they seed) must not depend on the LLM being healthy.
+  if (settings.getGranolaKey()) {
+    try {
+      db.upsert_synced_notes(await granola.fetch_recent_notes(30, 40));
+      db.suggest_from_unmatched_notes(settings.getUserProfile());
+      health.record("granola", null);
+    } catch (e) {
+      console.error(`[granola] post-sweep note sync failed: ${e.message}`);
+      health.record("granola", e.message);
+    }
+  }
+
   // Todo extraction — its 30-minute in-process cache means back-to-back
   // sweeps (manual + timer) don't double-bill the LLM.
   try {
@@ -77,8 +95,10 @@ async function _runSweepCycle(reason) {
         `[todos] extracted ${r.extracted} candidate(s) from ${r.scanned} chat(s)`
       );
     }
+    health.record("todos", null);
   } catch (e) {
     console.error(`[todos] post-sweep extraction failed: ${e.message}`);
+    health.record("todos", e.message);
   }
 
   // Promise extraction — throttled to once per interval per server run.
@@ -89,8 +109,10 @@ async function _runSweepCycle(reason) {
       console.log(
         `[promises] ${r.inserted} new promise(s) across ${r.scanned} chat(s)`
       );
+      health.record("promises", null);
     } catch (e) {
       console.error(`[promises] post-sweep extraction failed: ${e.message}`);
+      health.record("promises", e.message);
     }
   }
 

@@ -16,12 +16,19 @@ export const Toast = ({ toast, onClose }) => {
         ? <Sparkles size={16} className="text-yellow-300 flex-shrink-0" />
         : <CheckCircle2 size={16} className="text-green-400 flex-shrink-0" />);
 
+  // Tokens, not Tailwind grays: theme.css remaps .bg-gray-900 to a light
+  // surface in light mode, which made white toast text unreadable — the
+  // audit's U5. Tokens render correctly in both themes.
   return (
     <div
-      className="fixed bottom-6 right-6 z-50 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 text-sm"
+      className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg flex items-center gap-3 text-sm"
       style={{
         maxWidth: 480,
-        borderLeft: isError ? "3px solid #f87171" : undefined,
+        background: "var(--surface-2)",
+        color: "var(--text)",
+        border: "1px solid var(--border-strong)",
+        boxShadow: "var(--shadow-popover)",
+        borderLeft: isError ? "3px solid var(--danger-soft)" : "1px solid var(--border-strong)",
       }}
       role={isError ? "alert" : "status"}
       aria-live={isError ? "assertive" : "polite"}
@@ -35,12 +42,12 @@ export const Toast = ({ toast, onClose }) => {
             onClose();
           }}
           className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-          style={{ background: "rgba(255,255,255,0.15)", color: "white" }}
+          style={{ background: "var(--brand-tint-2)", color: "var(--brand)", border: "1px solid var(--brand-border)" }}
         >
           {action.label}
         </button>
       )}
-      <button onClick={onClose} className="opacity-60 hover:opacity-100"><X size={14} /></button>
+      <button onClick={onClose} className="opacity-60 hover:opacity-100" style={{ color: "var(--text)" }}><X size={14} /></button>
     </div>
   );
 };

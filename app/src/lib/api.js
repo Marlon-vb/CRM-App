@@ -332,6 +332,14 @@ export const api = {
     if (!r.ok && r.status !== 204) throw new Error(`POST /api/suggestions/${id}/dismiss → ${r.status}`);
   },
 
+  /* ── Health (dependency ledger — drives the shell banner) ── */
+  async health() {
+    const r = await apiFetch("/api/health");
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `GET /api/health → ${r.status}`);
+    return data;
+  },
+
   /* ── Cloud publish (Phase 4 — feeds the iPhone app) ── */
   async cloudStatus() {
     const r = await apiFetch("/api/cloud/status");
