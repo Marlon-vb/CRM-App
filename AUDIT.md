@@ -5,12 +5,13 @@ after Phases 0–5 shipped and the app went live on real data (43 clients,
 38-item queue). Findings verified against source; file:line refs included.
 Severity reflects damage to a real user's week, not code aesthetics.
 
-> **Fix status (2026-07-07):** all four waves shipped. ✅ = fixed and
-> verified (Wave 1 `793382a`, Wave 2 `2bf99d6`, Wave 3 `f1a02a7` + the
-> regression suite `npm --prefix desktop test`, Wave 4 `8c8bfd5`).
-> U10 ✅ covers haptics — swipe actions, plus U4 (QR handoff), U7
-> (icons/signing), and U9 remain open. File:line refs below describe
-> the code AS AUDITED and may have drifted.
+> **Fix status (2026-07-07):** all four waves shipped, plus the U7/U9/U10
+> follow-up. ✅ = fixed and verified (Wave 1 `793382a`, Wave 2 `2bf99d6`,
+> Wave 3 `f1a02a7` + the regression suite `npm --prefix desktop test`,
+> Wave 4 `8c8bfd5`, icons/swipes/suggestions `03ad12c`). Still open:
+> U4 (QR handoff) and phone push notifications (Expo push — C3's Mac
+> half shipped). File:line refs below describe the code AS AUDITED and
+> may have drifted.
 
 ## The three themes
 
@@ -72,9 +73,9 @@ failure mode it exists to fix.
 | U4 | Phone first-run = typing a ~200-char JWT; QR handoff from Mac Settings would erase the worst moment in the product. Strict URL regex also rejects self-hosted Supabase. | phone | `mobile LoginScreen.js:41-66`; `mobile cloud.js:42` |
 | U5 ✅ | Toasts unreadable in light theme (`bg-gray-900` overridden to near-white surface with white text). | Mac | `Toast.jsx:21`; `theme.css:432-433` |
 | U6 ✅ | Clients list: no search/sort/scroll-to with 43 rows; "open client" from queue/todos drops the id. | Mac | `App.jsx:318-321`; `Clients.jsx:279-347` |
-| U7 | No app icon/splash assets at all — EAS/TestFlight would ship the Expo placeholder; `.dmg` config points at a nonexistent `build/icon.png`, unsigned (Gatekeeper lore undocumented here). | phone + Mac | `mobile app.json`; `desktop/package.json` |
+| U7 ✅ | No app icon/splash assets at all — EAS/TestFlight would ship the Expo placeholder; `.dmg` config points at a nonexistent `build/icon.png`, unsigned (Gatekeeper lore undocumented here). | phone + Mac | `mobile app.json`; `desktop/package.json` |
 | U8 ✅ | Accessibility: zero a11y props on phone; `textFaint` fails WCAG on all surfaces (3.2–3.8:1, computed); hit targets < 44pt, no hitSlop; priority is color-only. | phone | `mobile theme.js`; `mobile TodosScreen.js:121` |
-| U9 | Suggested clients buried below a 38-item rail — the growth moment is invisible; no edit-before-accept. | Mac | `QueueView.jsx:495-556` |
+| U9 ✅ | Suggested clients buried below a 38-item rail — the growth moment is invisible; no edit-before-accept. | Mac | `QueueView.jsx:495-556` |
 | U10 ✅ | No haptics, no swipe actions — the two canonical one-handed triage affordances. | phone | `mobile package.json` |
 
 ## Minor (grouped)
@@ -121,7 +122,7 @@ M1 preserve snooze `created_at` · M2 narrow the clobber window · M3
 `rel:` fallback in build_queue · M9 null-activity cold · M7 deepen promise
 extraction · commit the test harness so none of this regresses.
 
-**Wave 4 — the pulse (Phase 6 proper).** ✅ shipped (`8c8bfd5`) — C3 Mac side, C4, U8, U10 haptics; Expo push / U4 / U7 / swipes still open
+**Wave 4 — the pulse (Phase 6 proper).** ✅ shipped (`8c8bfd5` + `03ad12c`) — C3 Mac side, C4, U7, U8, U9, U10; Expo push and U4 (QR handoff) still open
 C3 notifications: Mac `new Notification()` post-sweep + Expo push later ·
 C4 login item + tray + loud data-age states · U4 QR handoff · U7 icons +
 signed builds · U8/U10 a11y + haptics + swipes.
