@@ -14,7 +14,7 @@
  * before the message actually goes to Telegram. Sending a bundled card also
  * completes its todos and resolves its promises — one send clears all.
  *
- * The rail bottom hosts the "New conversations" block — pending suggestions
+ * The rail top hosts the "New conversations" block — pending suggestions
  * from the sweep's unknown-dialog scan. Track creates a relationship from
  * the suggestion; Dismiss suppresses the group from future sweeps.
  *
@@ -543,68 +543,12 @@ const QueueViewInner = ({
       <div style={{ display: "flex", gap: "var(--space-4)", alignItems: "flex-start" }}>
       {/* ── RAIL ── */}
       <aside style={{ width: 280, flexShrink: 0 }}>
-        {KIND_ORDER.map((kind) => {
-          const list = grouped[kind];
-          if (!list?.length) return null;
-          const meta = KIND_META[kind];
-          return (
-            <div key={kind} style={{ marginBottom: "var(--space-3)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", padding: "var(--space-1) var(--space-2) var(--space-1-5)" }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />
-                <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.13em", color: meta.color }}>{meta.label}</span>
-                <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>{list.length}</span>
-              </div>
-              {list.map((it) => {
-                const isCurrent = current && it.key === current.key;
-                return (
-                  <button
-                    key={it.key}
-                    onClick={() => { setCurrentKey(it.key); setSnoozeOpen(false); }}
-                    className="pw-qitem"
-                    style={{
-                      display: "flex", alignItems: "flex-start", gap: "var(--space-2)", width: "100%",
-                      textAlign: "left", padding: "var(--space-2) var(--space-2-5)",
-                      borderRadius: "var(--radius-lg)", border: "1px solid",
-                      borderColor: isCurrent ? "var(--border)" : "transparent",
-                      background: isCurrent ? "var(--surface)" : "transparent",
-                      boxShadow: isCurrent ? "var(--shadow-card)" : "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {it.relationshipName
-                      ? <CompanyLogo company={it.company || it.relationshipName} small />
-                      : <span style={{ width: 26, height: 26, borderRadius: "var(--radius-lg)", background: "var(--tone-amber-bg)", color: "var(--warning-soft)", display: "grid", placeItems: "center", fontSize: 12, flexShrink: 0 }}>☐</span>}
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", fontSize: "var(--font-base)", fontWeight: 600, color: "var(--text)" }}>
-                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.relationshipName || it.title}</span>
-                        {(it.bundle?.length || 0) > 0 && (
-                          <span style={{ fontFamily: MONO, fontSize: 8, fontWeight: 600, background: "var(--brand-tint-2)", color: "var(--brand)", borderRadius: "var(--radius-xs)", padding: "1px 5px", flexShrink: 0 }}>
-                            ×{it.bundle.length + 1}
-                          </span>
-                        )}
-                      </span>
-                      <span style={{ display: "block", fontSize: "var(--font-sm)", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
-                        {it.why}
-                      </span>
-                    </span>
-                    <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", color: it.kind === "reply" ? "var(--danger-soft)" : "var(--text-faint)", flexShrink: 0, paddingTop: 2 }}>
-                      {timeAgo(it.lastActivity || it.dueDate)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
-        {queue?.sweptAt === null && (
-          <div style={{ fontSize: "var(--font-sm)", color: "var(--text-faint)", padding: "var(--space-2-5)", lineHeight: 1.5 }}>
-            Waiting for the first Telegram sweep — reply detection sharpens once it lands.
-          </div>
-        )}
-
-        {/* ── NEW CONVERSATIONS — pending suggestions from the sweep ── */}
+        {/* ── NEW CONVERSATIONS — pending suggestions from the sweep.
+            Deliberately ABOVE the queue groups (audit U9): a new client
+            appearing is the growth moment, and buried under a 38-item rail
+            it was invisible. ── */}
         {suggestions.length > 0 && (
-          <div style={{ marginTop: "var(--space-4)", paddingTop: "var(--space-3)", borderTop: "1px solid var(--border-subtle)" }}>
+          <div style={{ marginBottom: "var(--space-3)", paddingBottom: "var(--space-2)", borderBottom: "1px solid var(--border-subtle)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", padding: "var(--space-1) var(--space-2) var(--space-1-5)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--telegram)" }} />
               <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.13em", color: "var(--telegram)" }}>Suggested clients</span>
@@ -662,6 +606,65 @@ const QueueViewInner = ({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {KIND_ORDER.map((kind) => {
+          const list = grouped[kind];
+          if (!list?.length) return null;
+          const meta = KIND_META[kind];
+          return (
+            <div key={kind} style={{ marginBottom: "var(--space-3)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", padding: "var(--space-1) var(--space-2) var(--space-1-5)" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />
+                <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.13em", color: meta.color }}>{meta.label}</span>
+                <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>{list.length}</span>
+              </div>
+              {list.map((it) => {
+                const isCurrent = current && it.key === current.key;
+                return (
+                  <button
+                    key={it.key}
+                    onClick={() => { setCurrentKey(it.key); setSnoozeOpen(false); }}
+                    className="pw-qitem"
+                    style={{
+                      display: "flex", alignItems: "flex-start", gap: "var(--space-2)", width: "100%",
+                      textAlign: "left", padding: "var(--space-2) var(--space-2-5)",
+                      borderRadius: "var(--radius-lg)", border: "1px solid",
+                      borderColor: isCurrent ? "var(--border)" : "transparent",
+                      background: isCurrent ? "var(--surface)" : "transparent",
+                      boxShadow: isCurrent ? "var(--shadow-card)" : "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {it.relationshipName
+                      ? <CompanyLogo company={it.company || it.relationshipName} small />
+                      : <span style={{ width: 26, height: 26, borderRadius: "var(--radius-lg)", background: "var(--tone-amber-bg)", color: "var(--warning-soft)", display: "grid", placeItems: "center", fontSize: 12, flexShrink: 0 }}>☐</span>}
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", fontSize: "var(--font-base)", fontWeight: 600, color: "var(--text)" }}>
+                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.relationshipName || it.title}</span>
+                        {(it.bundle?.length || 0) > 0 && (
+                          <span style={{ fontFamily: MONO, fontSize: 8, fontWeight: 600, background: "var(--brand-tint-2)", color: "var(--brand)", borderRadius: "var(--radius-xs)", padding: "1px 5px", flexShrink: 0 }}>
+                            ×{it.bundle.length + 1}
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ display: "block", fontSize: "var(--font-sm)", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
+                        {it.why}
+                      </span>
+                    </span>
+                    <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", color: it.kind === "reply" ? "var(--danger-soft)" : "var(--text-faint)", flexShrink: 0, paddingTop: 2 }}>
+                      {timeAgo(it.lastActivity || it.dueDate)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+        {queue?.sweptAt === null && (
+          <div style={{ fontSize: "var(--font-sm)", color: "var(--text-faint)", padding: "var(--space-2-5)", lineHeight: 1.5 }}>
+            Waiting for the first Telegram sweep — reply detection sharpens once it lands.
           </div>
         )}
 

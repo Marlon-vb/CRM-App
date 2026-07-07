@@ -10,6 +10,7 @@
     "rebuild": "electron-rebuild",
     "dist": "npm --prefix ../app run build && electron-builder",
     "dist:universal": "npm --prefix ../app run build && electron-builder --mac --universal",
+    "dist:signed": "npm --prefix ../app run build && electron-builder --mac --universal -c.mac.notarize=true",
     "import-pipewise": "ELECTRON_RUN_AS_NODE=1 electron scripts/import-pipewise.js",
     "test": "node --test test/*.test.js",
     "test:mac": "ELECTRON_RUN_AS_NODE=1 electron --test test/*.test.js"
@@ -48,7 +49,10 @@
       ],
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
-      "identity": null
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false
     }
   }
 }

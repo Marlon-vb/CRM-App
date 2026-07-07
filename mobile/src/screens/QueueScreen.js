@@ -4,6 +4,9 @@ import {
   Linking, Animated, StyleSheet,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
+// Classic Animated-based Swipeable — ReanimatedSwipeable needs reanimated,
+// which this app deliberately doesn't carry.
+import { Swipeable } from "react-native-gesture-handler";
 import * as cloud from "../lib/cloud";
 import { telegramLinkCandidates, lastInboundDate, snoozeUntil } from "../lib/telegram-links";
 import * as haptics from "../lib/haptics";
@@ -39,6 +42,7 @@ function QueueCard({ item, index, onActed, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const swipeRef = useRef(null);
   const meta = KIND_META[item.kind] || KIND_META.todo;
   const hot = heat(item.urgency);
 
@@ -109,6 +113,39 @@ function QueueCard({ item, index, onActed, onError }) {
     );
   };
 
+  // Swipes are shortcuts to the buttons, never a third semantic (audit U10):
+  // left-reveal fires the exact Handled path, right-reveal opens the snooze
+  // sheet. Close via ref before acting — an undone card un-hides and must
+  // come back neutral, not sitting open on its action.
+  const fireSwipe = (direction) => {
+    swipeRef.current?.close();
+    if (busy) return;
+    if (direction === "left") handleDone();
+    else { haptics.tapLight(); setSnoozeOpen(true); }
+  };
+
+  const doneLabel = item.kind === "todo" ? "Done" : "Handled";
+  const renderLeftActions = () => (
+    <TouchableOpacity
+      style={[s.swipeAction, s.swipeDone]}
+      onPress={() => fireSwipe("left")}
+      accessibilityRole="button"
+      accessibilityLabel={item.kind === "todo" ? "Complete todo" : `Mark ${item.relationshipName || item.title || "item"} handled until tomorrow`}
+    >
+      <Text style={s.swipeDoneText}>{doneLabel}</Text>
+    </TouchableOpacity>
+  );
+  const renderRightActions = () => (
+    <TouchableOpacity
+      style={[s.swipeAction, s.swipeSnooze]}
+      onPress={() => fireSwipe("right")}
+      accessibilityRole="button"
+      accessibilityLabel={`Snooze ${item.relationshipName || item.title || "item"}`}
+    >
+      <Text style={s.swipeSnoozeText}>Snooze</Text>
+    </TouchableOpacity>
+  );
+
   const openTelegram = async () => {
     const msgId = item.messages && item.messages[0] ? item.messages[0].id : null;
     for (const url of telegramLinkCandidates(item.activeChatId, msgId)) {
@@ -132,111 +169,120 @@ function QueueCard({ item, index, onActed, onError }) {
       opacity: anim,
       transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
     }}>
-      <TouchableOpacity
-        style={[s.card, { borderLeftColor: meta.color }]}
-        activeOpacity={0.85}
-        onPress={() => {
-          if (!expanded) haptics.tapLight();
-          setExpanded((v) => !v);
-        }}
+      <Swipeable
+        ref={swipeRef}
+        friction={2}
+        enabled={!busy}
+        renderLeftActions={renderLeftActions}
+        renderRightActions={renderRightActions}
+        onSwipeableOpen={fireSwipe}
       >
-        <View style={s.cardRow}>
-          <Avatar name={item.relationshipName || item.title || "?"} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={s.cardHead}>
-              <View style={[s.kindChip, { backgroundColor: meta.tint }]}>
-                <Text style={[s.kindText, { color: meta.color }]}>{meta.icon} {meta.label}</Text>
+        <TouchableOpacity
+          style={[s.card, { borderLeftColor: meta.color }]}
+          activeOpacity={0.85}
+          onPress={() => {
+            if (!expanded) haptics.tapLight();
+            setExpanded((v) => !v);
+          }}
+        >
+          <View style={s.cardRow}>
+            <Avatar name={item.relationshipName || item.title || "?"} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={s.cardHead}>
+                <View style={[s.kindChip, { backgroundColor: meta.tint }]}>
+                  <Text style={[s.kindText, { color: meta.color }]}>{meta.icon} {meta.label}</Text>
+                </View>
+                {hot && (
+                  <View style={s.heat}>
+                    <View style={[s.heatDot, { backgroundColor: hot.dot }]} />
+                    <Text style={[s.heatText, { color: hot.dot }]}>{hot.label}</Text>
+                  </View>
+                )}
+                {item.chatCount > 1 ? <Text style={s.chatCount}>{item.chatCount} chats</Text> : null}
               </View>
-              {hot && (
-                <View style={s.heat}>
-                  <View style={[s.heatDot, { backgroundColor: hot.dot }]} />
-                  <Text style={[s.heatText, { color: hot.dot }]}>{hot.label}</Text>
+              <Text style={s.name} numberOfLines={1}>
+                {item.relationshipName || item.title || item.key}
+              </Text>
+              {item.why ? <Text style={s.why}>{item.why}</Text> : null}
+            </View>
+          </View>
+
+          {item.actionSummary ? <Text style={s.summary}>“{item.actionSummary}”</Text> : null}
+
+          {expanded && (
+            <View style={s.detail}>
+              {(item.messages || []).slice(0, 5).slice().reverse().map((m) => (
+                <View key={m.id} style={[s.bubble, m.is_me ? s.bubbleMe : s.bubbleThem]}>
+                  <Text style={s.bubbleSender}>{m.is_me ? "you" : m.sender || "them"} · {timeAgo(m.date)}</Text>
+                  <Text style={s.bubbleText}>{m.text}</Text>
+                </View>
+              ))}
+              {(item.bundle || []).length > 0 && (
+                <View style={s.bundleBox}>
+                  <Text style={s.bundleTitle}>CLEARS WITH THIS</Text>
+                  {(item.bundle || []).map((b) => (
+                    <Text key={`${b.type}:${b.id}`} style={s.bundle}>
+                      {b.type === "todo" ? "☑" : "◆"} {b.label}
+                    </Text>
+                  ))}
                 </View>
               )}
-              {item.chatCount > 1 ? <Text style={s.chatCount}>{item.chatCount} chats</Text> : null}
+              {item.noteSummary ? (
+                <Text style={s.note} numberOfLines={6}>{item.noteSummary}</Text>
+              ) : null}
+              <TouchableOpacity
+                onPress={copyContext} hitSlop={HIT_SLOP}
+                accessibilityRole="button" accessibilityLabel="Copy conversation"
+              >
+                <Text style={s.copy}>⧉ Copy conversation</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={s.name} numberOfLines={1}>
-              {item.relationshipName || item.title || item.key}
-            </Text>
-            {item.why ? <Text style={s.why}>{item.why}</Text> : null}
-          </View>
-        </View>
+          )}
 
-        {item.actionSummary ? <Text style={s.summary}>“{item.actionSummary}”</Text> : null}
-
-        {expanded && (
-          <View style={s.detail}>
-            {(item.messages || []).slice(0, 5).slice().reverse().map((m) => (
-              <View key={m.id} style={[s.bubble, m.is_me ? s.bubbleMe : s.bubbleThem]}>
-                <Text style={s.bubbleSender}>{m.is_me ? "you" : m.sender || "them"} · {timeAgo(m.date)}</Text>
-                <Text style={s.bubbleText}>{m.text}</Text>
-              </View>
-            ))}
-            {(item.bundle || []).length > 0 && (
-              <View style={s.bundleBox}>
-                <Text style={s.bundleTitle}>CLEARS WITH THIS</Text>
-                {(item.bundle || []).map((b) => (
-                  <Text key={`${b.type}:${b.id}`} style={s.bundle}>
-                    {b.type === "todo" ? "☑" : "◆"} {b.label}
-                  </Text>
-                ))}
-              </View>
-            )}
-            {item.noteSummary ? (
-              <Text style={s.note} numberOfLines={6}>{item.noteSummary}</Text>
+          <View style={s.actions}>
+            {item.activeChatId ? (
+              <TouchableOpacity
+                style={[s.btn, s.btnTelegram]} disabled={busy} onPress={openTelegram} hitSlop={HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${item.relationshipName || item.title || "chat"} in Telegram`}
+              >
+                <Text style={s.btnTelegramText}>Open in Telegram</Text>
+              </TouchableOpacity>
             ) : null}
             <TouchableOpacity
-              onPress={copyContext} hitSlop={HIT_SLOP}
-              accessibilityRole="button" accessibilityLabel="Copy conversation"
+              style={[s.btn, s.btnDone]} disabled={busy} onPress={handleDone} hitSlop={HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel={item.kind === "todo" ? "Complete todo" : `Mark ${item.relationshipName || item.title || "item"} handled until tomorrow`}
             >
-              <Text style={s.copy}>⧉ Copy conversation</Text>
+              <Text style={s.btnDoneText}>{busy ? "…" : item.kind === "todo" ? "Done" : "Handled"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.btn} disabled={busy} hitSlop={HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel={`Snooze ${item.relationshipName || item.title || "item"}`}
+              onPress={() => { haptics.tapLight(); setSnoozeOpen(true); }}
+            >
+              <Text style={s.btnText}>Snooze</Text>
             </TouchableOpacity>
           </View>
-        )}
 
-        <View style={s.actions}>
-          {item.activeChatId ? (
-            <TouchableOpacity
-              style={[s.btn, s.btnTelegram]} disabled={busy} onPress={openTelegram} hitSlop={HIT_SLOP}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${item.relationshipName || item.title || "chat"} in Telegram`}
-            >
-              <Text style={s.btnTelegramText}>Open in Telegram</Text>
+          <Modal transparent visible={snoozeOpen} animationType="fade" onRequestClose={() => setSnoozeOpen(false)}>
+            <TouchableOpacity style={s.modalBack} activeOpacity={1} onPress={() => setSnoozeOpen(false)}>
+              <View style={s.modalSheet}>
+                <Text style={s.modalTitle}>Snooze {item.relationshipName || ""}</Text>
+                {[["tonight", "🌙  Tonight 18:00"], ["tomorrow", "☀️  Tomorrow 09:00"],
+                  ["nextweek", "📅  Next week"], ["after_reply", "✦  After they reply"]].map(([opt, label]) => (
+                  <TouchableOpacity key={opt} style={s.modalRow} onPress={() => handleSnooze(opt)}>
+                    <Text style={[s.modalText, opt === "after_reply" && { color: C.brand, fontWeight: "700" }]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </TouchableOpacity>
-          ) : null}
-          <TouchableOpacity
-            style={[s.btn, s.btnDone]} disabled={busy} onPress={handleDone} hitSlop={HIT_SLOP}
-            accessibilityRole="button"
-            accessibilityLabel={item.kind === "todo" ? "Complete todo" : `Mark ${item.relationshipName || item.title || "item"} handled until tomorrow`}
-          >
-            <Text style={s.btnDoneText}>{busy ? "…" : item.kind === "todo" ? "Done" : "Handled"}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.btn} disabled={busy} hitSlop={HIT_SLOP}
-            accessibilityRole="button"
-            accessibilityLabel={`Snooze ${item.relationshipName || item.title || "item"}`}
-            onPress={() => { haptics.tapLight(); setSnoozeOpen(true); }}
-          >
-            <Text style={s.btnText}>Snooze</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Modal transparent visible={snoozeOpen} animationType="fade" onRequestClose={() => setSnoozeOpen(false)}>
-          <TouchableOpacity style={s.modalBack} activeOpacity={1} onPress={() => setSnoozeOpen(false)}>
-            <View style={s.modalSheet}>
-              <Text style={s.modalTitle}>Snooze {item.relationshipName || ""}</Text>
-              {[["tonight", "🌙  Tonight 18:00"], ["tomorrow", "☀️  Tomorrow 09:00"],
-                ["nextweek", "📅  Next week"], ["after_reply", "✦  After they reply"]].map(([opt, label]) => (
-                <TouchableOpacity key={opt} style={s.modalRow} onPress={() => handleSnooze(opt)}>
-                  <Text style={[s.modalText, opt === "after_reply" && { color: C.brand, fontWeight: "700" }]}>
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      </TouchableOpacity>
+          </Modal>
+        </TouchableOpacity>
+      </Swipeable>
     </Animated.View>
   );
 }
@@ -391,6 +437,13 @@ const s = StyleSheet.create({
   bundle: { color: C.textSecondary, fontSize: 13, marginTop: 2 },
   note: { color: C.textSecondary, fontSize: 12.5, lineHeight: 18, marginTop: 8 },
   copy: { color: C.brand, fontSize: 13, marginTop: 10, fontWeight: "600" },
+  // Swipe panels mirror the card metrics (radius 16, 10pt gap) so the
+  // revealed action reads as part of the row, not a floating chip.
+  swipeAction: { borderRadius: 16, marginBottom: 10, justifyContent: "center", paddingHorizontal: 24 },
+  swipeDone: { backgroundColor: C.success, alignItems: "flex-start" },
+  swipeDoneText: { color: "#0A1626", fontSize: 14, fontWeight: "800" },
+  swipeSnooze: { backgroundColor: C.surface2, alignItems: "flex-end" },
+  swipeSnoozeText: { color: C.brand, fontSize: 14, fontWeight: "800" },
   actions: { flexDirection: "row", gap: 8, marginTop: 12 },
   btn: { backgroundColor: C.surface3, borderRadius: 20, paddingVertical: 9, paddingHorizontal: 15 },
   btnText: { color: C.textSecondary, fontSize: 13, fontWeight: "700" },

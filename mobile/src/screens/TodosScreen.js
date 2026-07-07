@@ -1,4 +1,8 @@
+import { useRef } from "react";
 import { View, Text, SectionList, TouchableOpacity, RefreshControl, StyleSheet } from "react-native";
+// Classic Animated-based Swipeable — ReanimatedSwipeable needs reanimated,
+// which this app deliberately doesn't carry.
+import { Swipeable } from "react-native-gesture-handler";
 import * as cloud from "../lib/cloud";
 import * as haptics from "../lib/haptics";
 import { C, avatarColor, initials } from "../theme";
@@ -27,6 +31,71 @@ const BUCKETS = [
 ];
 
 const PRIORITY_COLOR = { high: "#E5747A", medium: "#F5C242", low: "#5E7190" };
+
+/* Row lives in its own component so each row owns a swipe ref (audit U10).
+   Swipe-right = the check circle, exact same toggle path (haptic + undo
+   toast included). Close via ref before acting — a rollback or undo re-shows
+   this row and it must render closed. No left-swipe action on todos. */
+function TodoRow({ t, rel, onToggle }) {
+  const swipeRef = useRef(null);
+  const complete = () => {
+    swipeRef.current?.close();
+    onToggle(t, { completed: true });
+  };
+  return (
+    <Swipeable
+      ref={swipeRef}
+      friction={2}
+      renderLeftActions={() => (
+        <TouchableOpacity
+          style={s.swipeComplete}
+          onPress={complete}
+          accessibilityRole="button"
+          accessibilityLabel={`Complete "${t.task}"`}
+        >
+          <Text style={s.swipeCompleteText}>Complete</Text>
+        </TouchableOpacity>
+      )}
+      onSwipeableOpen={complete}
+    >
+      <View style={s.row}>
+        <TouchableOpacity
+          style={[s.check, { borderColor: PRIORITY_COLOR[t.priority] || C.textFaint }]}
+          onPress={() => onToggle(t, { completed: true })}
+          hitSlop={HIT_SLOP}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: false }}
+          accessibilityLabel={`Complete "${t.task}"`}
+        >
+          {/* Priority is otherwise border-color-only — high gets a "!"
+              so it survives color-blindness (audit U8). */}
+          {t.priority === "high" ? <Text style={s.checkBang}>!</Text> : null}
+        </TouchableOpacity>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.task}>{t.task}</Text>
+          {rel ? (
+            <View style={s.relRow}>
+              <View style={[s.relDot, { backgroundColor: avatarColor(rel.name) }]}>
+                <Text style={s.relDotText}>{initials(rel.name)}</Text>
+              </View>
+              <Text style={s.rel}>{rel.name}</Text>
+            </View>
+          ) : null}
+        </View>
+        <TouchableOpacity
+          style={s.star} hitSlop={HIT_SLOP}
+          accessibilityRole="button"
+          accessibilityLabel={`${t.starred ? "Unstar" : "Star"} "${t.task}"`}
+          onPress={() => { haptics.tapLight(); onToggle(t, { starred: !t.starred }); }}
+        >
+          <Text style={{ color: t.starred ? C.warning : C.textFaint, fontSize: 17 }}>
+            {t.starred ? "★" : "☆"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </Swipeable>
+  );
+}
 
 /* Read/act todos: complete + star sync back to the Mac (applied on its
    next sync ≤5 min; the Mac stays the only place todos are created). */
@@ -69,46 +138,13 @@ export default function TodosScreen({ todos, relationships, refreshing, onRefres
       <SectionList
         sections={sections}
         keyExtractor={(t) => String(t.local_id)}
-        renderItem={({ item: t }) => {
-          const rel = t.relationship_local_id != null ? relById.get(t.relationship_local_id) : null;
-          return (
-            <View style={s.row}>
-              <TouchableOpacity
-                style={[s.check, { borderColor: PRIORITY_COLOR[t.priority] || C.textFaint }]}
-                onPress={() => toggle(t, { completed: true })}
-                hitSlop={HIT_SLOP}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: false }}
-                accessibilityLabel={`Complete "${t.task}"`}
-              >
-                {/* Priority is otherwise border-color-only — high gets a "!"
-                    so it survives color-blindness (audit U8). */}
-                {t.priority === "high" ? <Text style={s.checkBang}>!</Text> : null}
-              </TouchableOpacity>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={s.task}>{t.task}</Text>
-                {rel ? (
-                  <View style={s.relRow}>
-                    <View style={[s.relDot, { backgroundColor: avatarColor(rel.name) }]}>
-                      <Text style={s.relDotText}>{initials(rel.name)}</Text>
-                    </View>
-                    <Text style={s.rel}>{rel.name}</Text>
-                  </View>
-                ) : null}
-              </View>
-              <TouchableOpacity
-                style={s.star} hitSlop={HIT_SLOP}
-                accessibilityRole="button"
-                accessibilityLabel={`${t.starred ? "Unstar" : "Star"} "${t.task}"`}
-                onPress={() => { haptics.tapLight(); toggle(t, { starred: !t.starred }); }}
-              >
-                <Text style={{ color: t.starred ? C.warning : C.textFaint, fontSize: 17 }}>
-                  {t.starred ? "★" : "☆"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          );
-        }}
+        renderItem={({ item: t }) => (
+          <TodoRow
+            t={t}
+            rel={t.relationship_local_id != null ? relById.get(t.relationship_local_id) : null}
+            onToggle={toggle}
+          />
+        )}
         renderSectionHeader={({ section }) => (
           <View style={s.sectionRow}>
             <View style={[s.sectionDot, { backgroundColor: section.color }]} />
@@ -144,6 +180,10 @@ const s = StyleSheet.create({
     borderColor: C.border, borderWidth: 1, borderRadius: 14, padding: 12,
     marginBottom: 8, gap: 12,
   },
+  // Swipe panel mirrors the row metrics (radius 14, 8pt gap) so the revealed
+  // action reads as part of the row, not a floating chip.
+  swipeComplete: { backgroundColor: C.success, borderRadius: 14, marginBottom: 8, justifyContent: "center", paddingHorizontal: 22 },
+  swipeCompleteText: { color: "#0A1626", fontSize: 13.5, fontWeight: "800" },
   check: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   checkBang: { color: PRIORITY_COLOR.high, fontSize: 12, fontWeight: "800", lineHeight: 15 },
   task: { color: C.text, fontSize: 15, lineHeight: 20 },

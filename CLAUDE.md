@@ -44,7 +44,10 @@ traps are the ancestral reference. PipeWise itself stays untouched.
   states without Telegram (this is what the test suite does). GramJS itself
   can't run in the sandbox (no session) — Telegram-touching changes need
   the Mac smoke test.
-- **Frontend build:** `cd app && npx vite build --outDir /tmp/cadence-build`.
+- **Frontend build:** `cd app && npx vite build --outDir /tmp/cadence-build`
+  — `rm -rf` the outDir first: vite won't empty a directory outside the
+  project root, and a jsdom smoke that globs `assets/*.js` can silently
+  load a STALE hashed bundle from a previous build.
 - **Frontend RENDER smoke (catches what the build can't):** TDZ errors pass
   the build and blank the screen at runtime. Load the production bundle
   under jsdom (stub fetch/localStorage/observers, import the bundle with
@@ -159,7 +162,11 @@ to one summary. Login item applies only when `app.isPackaged` (dev would
 register the bare Electron binary with launchd). `launchAtLogin` is the
 second empty-string-default-TRUE settings field (after cloudSyncEnabled) —
 `!== "0"`, don't "normalize" it. The tray icon is a base64 template PNG
-embedded in main.js — there are no image assets in the repo.
+embedded in main.js; the app icons (Mac tile, iOS full-bleed, splash
+glyph) are checked in but GENERATED — edit
+`desktop/scripts/generate-icons.js` and re-run it, never hand-edit the
+PNGs. Release paths (unsigned vs signed+notarized `dist:signed`, EAS →
+TestFlight) live in RELEASE.md.
 
 **better-sqlite3 vs Electron.** `npm --prefix desktop install` compiles for
 the system Node; Electron needs `npm run rebuild` (@electron/rebuild) after

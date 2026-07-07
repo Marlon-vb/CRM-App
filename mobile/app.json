@@ -4,6 +4,12 @@
     "slug": "cadence",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A1626"
+    },
     "scheme": "cadence",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B1220",
@@ -11,7 +17,10 @@
       "bundleIdentifier": "com.montyinc.cadence",
       "supportsTablet": false,
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["tg", "telegram"]
+        "LSApplicationQueriesSchemes": [
+          "tg",
+          "telegram"
+        ]
       }
     },
     "android": {

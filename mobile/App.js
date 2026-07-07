@@ -10,6 +10,9 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { View, Text, TouchableOpacity, AppState, StyleSheet, SafeAreaView } from "react-native";
+// Swipe actions (audit U10) need a gesture-handler root ABOVE every
+// Swipeable — so both UI return paths (login, shell) mount inside one.
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 import * as cloud from "./src/lib/cloud";
@@ -148,7 +151,7 @@ export default function App() {
 
   if (!session) {
     return (
-      <>
+      <GestureHandlerRootView style={{ flex: 1 }}>
         <StatusBar style="light" />
         <LoginScreen
           initialConfig={config}
@@ -157,88 +160,90 @@ export default function App() {
             setSession(s);
           }}
         />
-      </>
+      </GestureHandlerRootView>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar style="light" />
-      <View style={{ flex: 1 }}>
-        {tab === "queue" && (
-          <QueueScreen
-            queue={queue} sync={sync} refreshing={refreshing}
-            onRefresh={() => refetch(true)}
-            onActed={handleActed}
-            onError={(m) => showToast(m, true)}
-          />
-        )}
-        {tab === "todos" && (
-          <TodosScreen
-            todos={todos} relationships={relationships} refreshing={refreshing}
-            onRefresh={() => refetch(true)}
-            onToggled={handleTodoToggled}
-            onNotify={(msg, undoFn) => showToast(msg, false, undoFn ? { label: "Undo", fn: undoFn } : null)}
-            onError={(m) => showToast(m, true)}
-          />
-        )}
-        {tab === "settings" && (
-          <SettingsScreen
-            session={session} config={config} sweptAt={queue.sweptAt}
-            onSignOut={async () => { await cloud.signOut(); setSession(null); }}
-          />
-        )}
-      </View>
-
-      {toast && (
-        <View style={[s.toast, toast.isError && s.toastError]}>
-          <Text style={[s.toastText, { flex: 1 }]}>{toast.msg}</Text>
-          {toast.action && (
-            <TouchableOpacity
-              style={s.toastBtn}
-              accessibilityRole="button"
-              accessibilityLabel={toast.action.label}
-              onPress={async () => {
-                const fn = toast.action.fn;
-                setToast(null);
-                try { await fn(); } catch (e) { showToast(e.message, true); }
-              }}
-            >
-              <Text style={s.toastBtnText}>{toast.action.label}</Text>
-            </TouchableOpacity>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="light" />
+        <View style={{ flex: 1 }}>
+          {tab === "queue" && (
+            <QueueScreen
+              queue={queue} sync={sync} refreshing={refreshing}
+              onRefresh={() => refetch(true)}
+              onActed={handleActed}
+              onError={(m) => showToast(m, true)}
+            />
+          )}
+          {tab === "todos" && (
+            <TodosScreen
+              todos={todos} relationships={relationships} refreshing={refreshing}
+              onRefresh={() => refetch(true)}
+              onToggled={handleTodoToggled}
+              onNotify={(msg, undoFn) => showToast(msg, false, undoFn ? { label: "Undo", fn: undoFn } : null)}
+              onError={(m) => showToast(m, true)}
+            />
+          )}
+          {tab === "settings" && (
+            <SettingsScreen
+              session={session} config={config} sweptAt={queue.sweptAt}
+              onSignOut={async () => { await cloud.signOut(); setSession(null); }}
+            />
           )}
         </View>
-      )}
 
-      <View style={s.tabbar}>
-        {TABS.map(([key, label]) => {
-          const active = tab === key;
-          const badge =
-            key === "queue"
-              ? (queue.items || []).filter((i) => !(queue.hiddenKeys || new Set()).has(i.key)).length
-              : key === "todos"
-                ? (todos || []).filter((t) => !t.completed).length
-                : 0;
-          return (
-            <TouchableOpacity
-              key={key} style={s.tab} onPress={() => setTab(key)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={badge > 0 ? `${label}, ${badge} item${badge === 1 ? "" : "s"}` : label}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={[s.tabText, active && s.tabActive]}>{label}</Text>
-                {badge > 0 && (
-                  <View style={[s.badge, active && s.badgeActive]}>
-                    <Text style={[s.badgeText, active && s.badgeTextActive]}>{badge}</Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </SafeAreaView>
+        {toast && (
+          <View style={[s.toast, toast.isError && s.toastError]}>
+            <Text style={[s.toastText, { flex: 1 }]}>{toast.msg}</Text>
+            {toast.action && (
+              <TouchableOpacity
+                style={s.toastBtn}
+                accessibilityRole="button"
+                accessibilityLabel={toast.action.label}
+                onPress={async () => {
+                  const fn = toast.action.fn;
+                  setToast(null);
+                  try { await fn(); } catch (e) { showToast(e.message, true); }
+                }}
+              >
+                <Text style={s.toastBtnText}>{toast.action.label}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        <View style={s.tabbar}>
+          {TABS.map(([key, label]) => {
+            const active = tab === key;
+            const badge =
+              key === "queue"
+                ? (queue.items || []).filter((i) => !(queue.hiddenKeys || new Set()).has(i.key)).length
+                : key === "todos"
+                  ? (todos || []).filter((t) => !t.completed).length
+                  : 0;
+            return (
+              <TouchableOpacity
+                key={key} style={s.tab} onPress={() => setTab(key)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={badge > 0 ? `${label}, ${badge} item${badge === 1 ? "" : "s"}` : label}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[s.tabText, active && s.tabActive]}>{label}</Text>
+                  {badge > 0 && (
+                    <View style={[s.badge, active && s.badgeActive]}>
+                      <Text style={[s.badgeText, active && s.badgeTextActive]}>{badge}</Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
