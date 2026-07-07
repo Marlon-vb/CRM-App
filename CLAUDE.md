@@ -148,6 +148,19 @@ inline script (theme bootstrap in index.html) is why `script-src` carries
 /api/chats/sweep` 503s when unconfigured and the frontend treats that
 silently (SetupBanner is the messaging surface). Keep that contract.
 
+**The pulse bridge keeps the backend Electron-free.** `notifier.js` is a
+hook registry: main.js registers HOW (Notification, tray title + dock
+badge, `setLoginItemSettings`), the backend decides WHAT (server.js calls
+`notifier.observe(queue)` post-sweep; the queue route calls `updateBadge`).
+Don't require electron from backend modules — register a hook instead.
+Notification policy is deliberate: only NEW reply/recap keys fire, the
+first observe after launch seeds silently, multiple fresh items collapse
+to one summary. Login item applies only when `app.isPackaged` (dev would
+register the bare Electron binary with launchd). `launchAtLogin` is the
+second empty-string-default-TRUE settings field (after cloudSyncEnabled) —
+`!== "0"`, don't "normalize" it. The tray icon is a base64 template PNG
+embedded in main.js — there are no image assets in the repo.
+
 **better-sqlite3 vs Electron.** `npm --prefix desktop install` compiles for
 the system Node; Electron needs `npm run rebuild` (@electron/rebuild) after
 install on the Mac. The sandbox never runs Electron so it never needs it.

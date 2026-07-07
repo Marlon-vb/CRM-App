@@ -5,11 +5,12 @@ after Phases 0–5 shipped and the app went live on real data (43 clients,
 38-item queue). Findings verified against source; file:line refs included.
 Severity reflects damage to a real user's week, not code aesthetics.
 
-> **Fix status (2026-07-07):** Waves 1–3 shipped. ✅ = fixed and verified
-> (Wave 1 commit `793382a`, Wave 2 `2bf99d6`, Wave 3 `f1a02a7` — Wave 3
-> also landed the regression suite, `npm --prefix desktop test`). Wave 4
-> (C3, C4, U4, U7, U8, U10) is next. File:line refs below describe the
-> code AS AUDITED and may have drifted.
+> **Fix status (2026-07-07):** all four waves shipped. ✅ = fixed and
+> verified (Wave 1 `793382a`, Wave 2 `2bf99d6`, Wave 3 `f1a02a7` + the
+> regression suite `npm --prefix desktop test`, Wave 4 `8c8bfd5`).
+> U10 ✅ covers haptics — swipe actions, plus U4 (QR handoff), U7
+> (icons/signing), and U9 remain open. File:line refs below describe
+> the code AS AUDITED and may have drifted.
 
 ## The three themes
 
@@ -41,8 +42,8 @@ failure mode it exists to fix.
 |---|---|---|---|
 | C1 ✅ | **False "all clear" on error/loading — both clients.** Mac: failed queue fetch leaves `queue=null` → celebratory zero state, even skipping the "waiting for first sweep" hint. Phone: "All clear 🎾" renders before first fetch, offline, and during silently-failing polls. | Mac + phone | `QueueView.jsx:136-140,561-572`; `mobile QueueScreen.js:220-266`; `mobile App.js:70-72` |
 | C2 ✅ | **Sent replies resurrect as "reply owed" ≤35 min, both devices.** Send updates neither the sweep cache nor triggers sweep/publish; `_PUBLISH_PATH_RE` excludes send-message with a comment describing a sweep that nothing schedules. | backend | `telegram.js:1086-1120`; `routes.js:134-139,349-362` |
-| C3 | **Nothing ever notifies the user.** No push, no macOS notifications, no app badge, anywhere. A reply owed 3 days is silent unless the user opens an app. | product | no notification code in repo |
-| C4 | **Hub-down = system-down, unflagged.** No login item, no tray; Cmd+Q freezes Mac + phone indefinitely. Neither client alarms on data age (phone caption only; Mac shows nothing). | product | `main.js` (no `setLoginItemSettings`); `QueueView.jsx:489` |
+| C3 ✅ | **Nothing ever notifies the user.** No push, no macOS notifications, no app badge, anywhere. A reply owed 3 days is silent unless the user opens an app. | product | no notification code in repo |
+| C4 ✅ | **Hub-down = system-down, unflagged.** No login item, no tray; Cmd+Q freezes Mac + phone indefinitely. Neither client alarms on data age (phone caption only; Mac shows nothing). | product | `main.js` (no `setLoginItemSettings`); `QueueView.jsx:489` |
 | C5 ✅ | **Phone session expiry is silent + concurrent-refresh can brick a session.** Background polls swallow auth errors forever; three parallel fetches can race the same refresh token (GoTrue rotation). | phone | `mobile cloud.js:101-116`; `mobile App.js:59-72` |
 | C6 ✅ | **Wrong Telegram binding is a dead end.** `PATCH /api/relationships/:id` and `addRelationshipChat` have zero frontend callers; the "not linked" tooltip instructs an action the UI can't perform; the only fix is delete (which cascades promises). | Mac | `Clients.jsx:66`; `api.js:49-62,79-88` (no callers) |
 | C7 ✅ | **Snoozed items are invisible and un-unsnoozable.** Mark-handled/D parks items in a state no surface lists; `unsnooze` API has no caller; no GET for snoozes; a mis-pressed D is unrecoverable until 09:00 tomorrow. | Mac + phone | `QueueView.jsx:292-293`; `routes.js:435-445` |
@@ -72,9 +73,9 @@ failure mode it exists to fix.
 | U5 ✅ | Toasts unreadable in light theme (`bg-gray-900` overridden to near-white surface with white text). | Mac | `Toast.jsx:21`; `theme.css:432-433` |
 | U6 ✅ | Clients list: no search/sort/scroll-to with 43 rows; "open client" from queue/todos drops the id. | Mac | `App.jsx:318-321`; `Clients.jsx:279-347` |
 | U7 | No app icon/splash assets at all — EAS/TestFlight would ship the Expo placeholder; `.dmg` config points at a nonexistent `build/icon.png`, unsigned (Gatekeeper lore undocumented here). | phone + Mac | `mobile app.json`; `desktop/package.json` |
-| U8 | Accessibility: zero a11y props on phone; `textFaint` fails WCAG on all surfaces (3.2–3.8:1, computed); hit targets < 44pt, no hitSlop; priority is color-only. | phone | `mobile theme.js`; `mobile TodosScreen.js:121` |
+| U8 ✅ | Accessibility: zero a11y props on phone; `textFaint` fails WCAG on all surfaces (3.2–3.8:1, computed); hit targets < 44pt, no hitSlop; priority is color-only. | phone | `mobile theme.js`; `mobile TodosScreen.js:121` |
 | U9 | Suggested clients buried below a 38-item rail — the growth moment is invisible; no edit-before-accept. | Mac | `QueueView.jsx:495-556` |
-| U10 | No haptics, no swipe actions — the two canonical one-handed triage affordances. | phone | `mobile package.json` |
+| U10 ✅ | No haptics, no swipe actions — the two canonical one-handed triage affordances. | phone | `mobile package.json` |
 
 ## Minor (grouped)
 
@@ -120,7 +121,7 @@ M1 preserve snooze `created_at` · M2 narrow the clobber window · M3
 `rel:` fallback in build_queue · M9 null-activity cold · M7 deepen promise
 extraction · commit the test harness so none of this regresses.
 
-**Wave 4 — the pulse (Phase 6 proper).**
+**Wave 4 — the pulse (Phase 6 proper).** ✅ shipped (`8c8bfd5`) — C3 Mac side, C4, U8, U10 haptics; Expo push / U4 / U7 / swipes still open
 C3 notifications: Mac `new Notification()` post-sweep + Expo push later ·
 C4 login item + tray + loud data-age states · U4 QR handoff · U7 icons +
 signed builds · U8/U10 a11y + haptics + swipes.

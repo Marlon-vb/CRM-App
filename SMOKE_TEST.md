@@ -129,7 +129,26 @@ alive. Relaunch — the first sweep binds the chats. Re-running without
    and the card leaves the Mac's queue too. Complete a todo on the phone →
    same. ☑
 
-## H — If something fails
+## H — The pulse (audit Wave 4)
+
+1. Menubar shows the Cadence dot with the queue count next to it; the dock
+   icon carries the same badge. Handle a card → both counts drop after the
+   app refetches. ☑
+2. Click the tray icon → menu shows the count line, **Open Cadence**,
+   **Sync now**, **Quit Cadence**. "Open" raises the window even after
+   closing it — the backend keeps sweeping with the window closed. ☑
+3. With the app running, have a tracked client send you a Telegram message,
+   then wait for the next sweep (or tray → Sync now): a macOS notification
+   "Reply owed — <client>" appears; clicking it focuses Cadence. Launch
+   never re-announces the existing queue. ☑
+4. Settings → **Start at login**: toggle it, then check System Settings →
+   General → Login Items (packaged app only; dev builds skip
+   registration). ☑
+5. iPhone: actions buzz (success on Handled/Snooze/complete, light tap on
+   expand/star), faint text is readable, high-priority todos show a "!" in
+   the check circle, VoiceOver reads every button meaningfully. ☑
+
+## I — If something fails
 
 - **Backend logs**: launch from a terminal (`./dev_launch.command`) and read
   stdout — the dev API token prints as `[auth] API token (dev): …`, sweep

@@ -56,7 +56,7 @@ Decided with Marlon on 2026-07-06:
 | **3 — Importer** ✅ shipped | `desktop/scripts/import-pipewise.js`: deals→relationships (stage→cadence, contacts→emails, lost→archived), todos incl. tombstones (byte-stable source_refs), notes, promises; guarded + idempotent re-runs | Run against a **copy** of the real DB on the Mac |
 | **4 — Cloud publish** ✅ shipped | `cadence_*` Supabase schema + RLS (coexists with PipeWise's project); direct-REST auth (no SDK); pull-then-push publisher (phone edits absorbed before the queue rebuild, tombstoned snoozes, stale queue items deleted); Settings → Cadence Cloud UI | Marlon: run `cloud/supabase-schema.sql` once, sign in, verify "synced Xs ago" |
 | **5 — iPhone (Expo)** ✅ scaffold shipped | `mobile/`: login (project + account, SecureStore), Queue with done/snooze(incl. after-reply)/bundle-clear, Todos complete/star, Telegram deep links (`t.me/c` for supergroups, `tg://openmessage` for DMs), copy-conversation, 45s polling. Direct-REST client (no SDK). Metro export + link-resolver tests pass. | Expo Go run on Marlon's phone (mobile/README.md); EAS→TestFlight when ready |
-| **6 — Hardening** | Push notifications, Mac menu-bar/background mode, docs | Full regression |
+| **6 — Hardening** ✅ shipped as audit Waves 1–4 (see AUDIT.md) | Honest error/stale states both clients + health surface; undo everywhere + snoozed drawer + client editing; sync-correctness fixes with a committed test suite (`npm --prefix desktop test`, 20 tests); macOS notifications on new reply/recap, menubar tray + dock badge, start-at-login toggle; phone haptics/a11y/contrast. Remaining: Expo push, QR handoff, icons/signing, swipes. | Sandbox suite green + Mac smoke test |
 
 ## Known deferred items
 
