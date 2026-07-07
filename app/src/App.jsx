@@ -669,8 +669,11 @@ export default function Cadence() {
         </div>
         )}
 
-        {/* Main */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Main. min-h-0 matters: in the compact COLUMN layout, flex
+            children default to min-height:auto and grow to content height —
+            the outer overflow-hidden clips them and the inner overflow-auto
+            never scrolls. (min-w-0 is the same fix for the row layout.) */}
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Top-of-page Telegram sync bar — real percentage, visible from
               every tab. Driven by polling /api/chats/progress (see the sweep
               machinery above). Sits above the scroll container so it pins to
