@@ -8,10 +8,10 @@ Severity reflects damage to a real user's week, not code aesthetics.
 > **Fix status (2026-07-07):** all four waves shipped, plus the U7/U9/U10
 > follow-up. ✅ = fixed and verified (Wave 1 `793382a`, Wave 2 `2bf99d6`,
 > Wave 3 `f1a02a7` + the regression suite `npm --prefix desktop test`,
-> Wave 4 `8c8bfd5`, icons/swipes/suggestions `03ad12c`). Still open:
-> U4 (QR handoff) and phone push notifications (Expo push — C3's Mac
-> half shipped). File:line refs below describe the code AS AUDITED and
-> may have drifted.
+> Wave 4 `8c8bfd5`, icons/swipes/suggestions `03ad12c`, QR handoff +
+> slim window `6ec6dba`). Still open: phone push notifications (Expo
+> push — C3's Mac half shipped). File:line refs below describe the code
+> AS AUDITED and may have drifted.
 
 ## The three themes
 
@@ -70,7 +70,7 @@ failure mode it exists to fix.
 | U1 ✅ | No "synced Xm ago" + no manual Sync button on the Mac queue (sweptAt fetched, never rendered; etaMinutes computed, never shown). | Mac | `api.js:203-205`; `followups.js:362` |
 | U2 ✅ | One-tap destructive actions with no undo: todo delete (incl. Delete key), todo complete (phone), queue done/snooze — Toast supports action buttons, never used. | both | `Todos.jsx:627-638`; `Toast.jsx:31-42`; `mobile TodosScreen.js:63-66` |
 | U3 ✅ | "Done" label is dishonest — it's snooze-until-tomorrow-09:00; resurfacing reads as a sync bug. | both | `mobile QueueScreen.js:68`; `QueueView.jsx:292` |
-| U4 | Phone first-run = typing a ~200-char JWT; QR handoff from Mac Settings would erase the worst moment in the product. Strict URL regex also rejects self-hosted Supabase. | phone | `mobile LoginScreen.js:41-66`; `mobile cloud.js:42` |
+| U4 ✅ | Phone first-run = typing a ~200-char JWT; QR handoff from Mac Settings would erase the worst moment in the product. Strict URL regex also rejects self-hosted Supabase. | phone | `mobile LoginScreen.js:41-66`; `mobile cloud.js:42` |
 | U5 ✅ | Toasts unreadable in light theme (`bg-gray-900` overridden to near-white surface with white text). | Mac | `Toast.jsx:21`; `theme.css:432-433` |
 | U6 ✅ | Clients list: no search/sort/scroll-to with 43 rows; "open client" from queue/todos drops the id. | Mac | `App.jsx:318-321`; `Clients.jsx:279-347` |
 | U7 ✅ | No app icon/splash assets at all — EAS/TestFlight would ship the Expo placeholder; `.dmg` config points at a nonexistent `build/icon.png`, unsigned (Gatekeeper lore undocumented here). | phone + Mac | `mobile app.json`; `desktop/package.json` |
