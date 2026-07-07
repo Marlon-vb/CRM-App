@@ -577,6 +577,31 @@ export default function Settings({ showToast, onProfileSaved }) {
           >
             <CloudSection showToast={showToast} />
           </Section>
+          <Section
+            title="Start at login"
+            desc="Cadence only sweeps and notifies while it's running — starting with your Mac keeps the queue (and the iPhone app) alive without remembering to open it. Applies to the installed app; the setting is saved either way."
+          >
+            <div className="flex items-center" style={{ gap: "var(--space-2-5)" }}>
+              <span style={{ fontSize: "var(--font-md)", color: "var(--text)" }}>
+                {status.launchAtLogin ? "Starts when you log in" : "Manual start only"}
+              </span>
+              <button
+                className={ghostBtn}
+                style={ghostStyle}
+                onClick={async () => {
+                  try {
+                    await api.saveSetupKeys({ launchAtLogin: status.launchAtLogin ? "0" : "1" });
+                    await reload();
+                    if (showToast) showToast(status.launchAtLogin ? "Login item removed" : "Cadence will start at login");
+                  } catch (e) {
+                    if (showToast) showToast(`Couldn't update — ${e.message}`);
+                  }
+                }}
+              >
+                {status.launchAtLogin ? "Disable" : "Enable"}
+              </button>
+            </div>
+          </Section>
         </>
       )}
     </div>

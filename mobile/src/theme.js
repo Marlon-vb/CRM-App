@@ -7,7 +7,7 @@ export const C = {
   border: "#1F2C47",
   text: "#E6EDF7",
   textSecondary: "#9FB0C9",
-  textFaint: "#5E7190",
+  textFaint: "#7A8DA9", // lightened from #5E7190 — WCAG contrast on bg/surface (audit U8)
   brand: "#7FB4E8",
   brandFg: "#0A1626",
   success: "#4CC38A",

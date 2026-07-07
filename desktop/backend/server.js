@@ -30,6 +30,7 @@ const drafting = require("./drafting");
 const granola = require("./granola");
 const publisher = require("./publisher");
 const health = require("./health");
+const notifier = require("./notifier");
 const { app, printEndpointList } = require("./routes");
 
 // ── background sweep loop ──────────────────────────────────────────
@@ -114,6 +115,18 @@ async function _runSweepCycle(reason) {
       console.error(`[promises] post-sweep extraction failed: ${e.message}`);
       health.record("promises", e.message);
     }
+  }
+
+  // The pulse (audit C3): diff the fresh queue against the previous build —
+  // Electron surfaces NEW reply/recap cards as macOS notifications and keeps
+  // the tray/dock badge current. No-ops headless; the first cycle after
+  // launch seeds silently.
+  try {
+    notifier.observe(
+      followups.build_queue({ telegramData: telegram.getLastSweep().chats || {} })
+    );
+  } catch (e) {
+    console.error(`[pulse] post-sweep observe failed: ${e.message}`);
   }
 
   // Cloud publish — the phone's queue goes stale the moment a sweep lands,

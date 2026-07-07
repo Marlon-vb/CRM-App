@@ -1,6 +1,11 @@
 import { View, Text, SectionList, TouchableOpacity, RefreshControl, StyleSheet } from "react-native";
 import * as cloud from "../lib/cloud";
+import * as haptics from "../lib/haptics";
 import { C, avatarColor, initials } from "../theme";
+
+/* The check circle (22pt) and star (~25pt) sit under Apple's 44pt minimum —
+   hitSlop pads the touch target without changing the visuals (audit U8). */
+const HIT_SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
 
 function bucketOf(dueDate) {
   if (!dueDate) return "none";
@@ -43,6 +48,7 @@ export default function TodosScreen({ todos, relationships, refreshing, onRefres
       await cloud.patchTodo(todo.local_id, patch);
       // Completing removes the row instantly — a mis-tap needs a way back.
       if (patch.completed) {
+        haptics.success();
         onNotify?.("Todo completed", async () => {
           await cloud.patchTodo(todo.local_id, { completed: false });
           onToggled(todo.local_id, { completed: false });
@@ -70,7 +76,15 @@ export default function TodosScreen({ todos, relationships, refreshing, onRefres
               <TouchableOpacity
                 style={[s.check, { borderColor: PRIORITY_COLOR[t.priority] || C.textFaint }]}
                 onPress={() => toggle(t, { completed: true })}
-              />
+                hitSlop={HIT_SLOP}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: false }}
+                accessibilityLabel={`Complete "${t.task}"`}
+              >
+                {/* Priority is otherwise border-color-only — high gets a "!"
+                    so it survives color-blindness (audit U8). */}
+                {t.priority === "high" ? <Text style={s.checkBang}>!</Text> : null}
+              </TouchableOpacity>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={s.task}>{t.task}</Text>
                 {rel ? (
@@ -82,7 +96,12 @@ export default function TodosScreen({ todos, relationships, refreshing, onRefres
                   </View>
                 ) : null}
               </View>
-              <TouchableOpacity style={s.star} onPress={() => toggle(t, { starred: !t.starred })}>
+              <TouchableOpacity
+                style={s.star} hitSlop={HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel={`${t.starred ? "Unstar" : "Star"} "${t.task}"`}
+                onPress={() => { haptics.tapLight(); toggle(t, { starred: !t.starred }); }}
+              >
                 <Text style={{ color: t.starred ? C.warning : C.textFaint, fontSize: 17 }}>
                   {t.starred ? "★" : "☆"}
                 </Text>
@@ -125,7 +144,8 @@ const s = StyleSheet.create({
     borderColor: C.border, borderWidth: 1, borderRadius: 14, padding: 12,
     marginBottom: 8, gap: 12,
   },
-  check: { width: 22, height: 22, borderRadius: 11, borderWidth: 2 },
+  check: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  checkBang: { color: PRIORITY_COLOR.high, fontSize: 12, fontWeight: "800", lineHeight: 15 },
   task: { color: C.text, fontSize: 15, lineHeight: 20 },
   relRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 },
   relDot: { width: 16, height: 16, borderRadius: 5, alignItems: "center", justifyContent: "center" },

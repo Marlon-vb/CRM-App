@@ -6,7 +6,12 @@ import {
 import * as Clipboard from "expo-clipboard";
 import * as cloud from "../lib/cloud";
 import { telegramLinkCandidates, lastInboundDate, snoozeUntil } from "../lib/telegram-links";
+import * as haptics from "../lib/haptics";
 import { C, KIND_META, KIND_ORDER, avatarColor, initials, timeAgo } from "../theme";
+
+/* Action buttons render ~36pt tall — hitSlop pads them to the 44pt Apple
+   minimum without changing the visuals (audit U8). */
+const HIT_SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
 
 function Avatar({ name, size = 38 }) {
   return (
@@ -52,6 +57,7 @@ function QueueCard({ item, index, onActed, onError }) {
     setBusy(true);
     try {
       await fn();
+      haptics.success();
       onActed(item.key, label, undoFn);
     } catch (e) {
       onError(e.message);
@@ -129,7 +135,10 @@ function QueueCard({ item, index, onActed, onError }) {
       <TouchableOpacity
         style={[s.card, { borderLeftColor: meta.color }]}
         activeOpacity={0.85}
-        onPress={() => setExpanded((v) => !v)}
+        onPress={() => {
+          if (!expanded) haptics.tapLight();
+          setExpanded((v) => !v);
+        }}
       >
         <View style={s.cardRow}>
           <Avatar name={item.relationshipName || item.title || "?"} />
@@ -176,7 +185,10 @@ function QueueCard({ item, index, onActed, onError }) {
             {item.noteSummary ? (
               <Text style={s.note} numberOfLines={6}>{item.noteSummary}</Text>
             ) : null}
-            <TouchableOpacity onPress={copyContext}>
+            <TouchableOpacity
+              onPress={copyContext} hitSlop={HIT_SLOP}
+              accessibilityRole="button" accessibilityLabel="Copy conversation"
+            >
               <Text style={s.copy}>⧉ Copy conversation</Text>
             </TouchableOpacity>
           </View>
@@ -184,14 +196,27 @@ function QueueCard({ item, index, onActed, onError }) {
 
         <View style={s.actions}>
           {item.activeChatId ? (
-            <TouchableOpacity style={[s.btn, s.btnTelegram]} disabled={busy} onPress={openTelegram}>
+            <TouchableOpacity
+              style={[s.btn, s.btnTelegram]} disabled={busy} onPress={openTelegram} hitSlop={HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${item.relationshipName || item.title || "chat"} in Telegram`}
+            >
               <Text style={s.btnTelegramText}>Open in Telegram</Text>
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity style={[s.btn, s.btnDone]} disabled={busy} onPress={handleDone}>
+          <TouchableOpacity
+            style={[s.btn, s.btnDone]} disabled={busy} onPress={handleDone} hitSlop={HIT_SLOP}
+            accessibilityRole="button"
+            accessibilityLabel={item.kind === "todo" ? "Complete todo" : `Mark ${item.relationshipName || item.title || "item"} handled until tomorrow`}
+          >
             <Text style={s.btnDoneText}>{busy ? "…" : item.kind === "todo" ? "Done" : "Handled"}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.btn} disabled={busy} onPress={() => setSnoozeOpen(true)}>
+          <TouchableOpacity
+            style={s.btn} disabled={busy} hitSlop={HIT_SLOP}
+            accessibilityRole="button"
+            accessibilityLabel={`Snooze ${item.relationshipName || item.title || "item"}`}
+            onPress={() => { haptics.tapLight(); setSnoozeOpen(true); }}
+          >
             <Text style={s.btnText}>Snooze</Text>
           </TouchableOpacity>
         </View>

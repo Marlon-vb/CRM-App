@@ -18,6 +18,7 @@ import QueueScreen from "./src/screens/QueueScreen";
 import TodosScreen from "./src/screens/TodosScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import { C } from "./src/theme";
+import * as haptics from "./src/lib/haptics";
 
 const POLL_MS = 45_000;
 
@@ -54,6 +55,7 @@ export default function App() {
   // triage action (audit finding 3). Action toasts linger longer.
   const showToast = useCallback((msg, isError = false, action = null) => {
     clearTimeout(toastTimer.current);
+    if (isError) haptics.warn(); // errors get felt, not just seen (audit U10)
     setToast({ msg, isError, action });
     toastTimer.current = setTimeout(() => setToast(null), action ? 6000 : isError ? 5000 : 3000);
   }, []);
@@ -194,6 +196,8 @@ export default function App() {
           {toast.action && (
             <TouchableOpacity
               style={s.toastBtn}
+              accessibilityRole="button"
+              accessibilityLabel={toast.action.label}
               onPress={async () => {
                 const fn = toast.action.fn;
                 setToast(null);
@@ -216,7 +220,12 @@ export default function App() {
                 ? (todos || []).filter((t) => !t.completed).length
                 : 0;
           return (
-            <TouchableOpacity key={key} style={s.tab} onPress={() => setTab(key)}>
+            <TouchableOpacity
+              key={key} style={s.tab} onPress={() => setTab(key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={badge > 0 ? `${label}, ${badge} item${badge === 1 ? "" : "s"}` : label}
+            >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Text style={[s.tabText, active && s.tabActive]}>{label}</Text>
                 {badge > 0 && (

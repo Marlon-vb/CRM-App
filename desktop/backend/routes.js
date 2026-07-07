@@ -34,6 +34,7 @@ const followups = require("./followups");
 const cloud = require("./cloud");
 const publisher = require("./publisher");
 const health = require("./health");
+const notifier = require("./notifier");
 
 // ── helpers ────────────────────────────────────────────────────────
 
@@ -225,10 +226,16 @@ app.post("/api/setup/keys", wrap((req, res) => {
     "anthropicKey", "granolaKey", "telegramApiId", "telegramApiHash",
     "onboarded",
     "userName", "userCompany", "userRole",
+    "launchAtLogin",
   ]) {
     if (k in body) updates[k] = body[k];
   }
   settings.set(updates);
+  // Login-item registration lives in Electron — apply the flip immediately
+  // via the pulse bridge (no-op in standalone node).
+  if ("launchAtLogin" in body) {
+    notifier.applyLoginItem(settings.status().launchAtLogin);
+  }
   res.json(settings.status());
 }));
 
@@ -459,6 +466,9 @@ app.post("/api/notes/sync", wrap(async (req, res) => {
 app.get("/api/followups/queue", wrap((req, res) => {
   const last = telegram.getLastSweep();
   const result = followups.build_queue({ telegramData: last.chats || {} });
+  // Acting in the app rebuilds the queue via this route — keep the tray
+  // count / dock badge honest between sweeps (no-op headless).
+  notifier.updateBadge(result.items.length);
   res.json({ ...result, sweptAt: last.sweptAt ?? null });
 }));
 

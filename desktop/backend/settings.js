@@ -51,6 +51,10 @@ const FIELDS = [
   "cloudUserId",
   "cloudUserEmail",
   "cloudSyncEnabled",
+  // Start Cadence at login (audit C4) — a closed Mac app means no sweeps,
+  // no publishes, a frozen phone. Empty string defaults to ENABLED (same
+  // shape as cloudSyncEnabled); only the explicit "0" disables.
+  "launchAtLogin",
 ];
 
 const STORE_FILE = path.join(DATA_DIR, "cadence-settings.dat");
@@ -216,6 +220,7 @@ function status() {
     userName: d.userName || "",
     userCompany: d.userCompany || "",
     userRole: d.userRole || "",
+    launchAtLogin: (d.launchAtLogin || "") !== "0",
     cloud: {
       signedIn: Boolean(d.cloudAccessToken && d.cloudRefreshToken && d.cloudUserId),
       email: d.cloudUserEmail || "",

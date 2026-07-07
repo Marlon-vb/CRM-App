@@ -13,7 +13,10 @@
  * instead (for frontend work); the backend still starts on :3456.
  */
 
-const { app, BrowserWindow, shell, dialog } = require("electron");
+const {
+  app, BrowserWindow, shell, dialog,
+  Notification, Tray, Menu, nativeImage,
+} = require("electron");
 const path = require("path");
 
 // Packaged mode: redirect data + bundled assets to OS-standard locations.
@@ -32,6 +35,8 @@ if (app.isPackaged) {
 
 const backend = require("./backend/server");
 const auth = require("./backend/auth");
+const notifier = require("./backend/notifier");
+const settings = require("./backend/settings");
 
 // Defaults to the Node backend's own origin; override with CADENCE_URL=…
 // to point at a Vite dev server during frontend work.
@@ -111,6 +116,90 @@ function createWindow() {
   });
 }
 
+function focusWindow() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+// ── the pulse: tray + badge + notifications + login item (audit C3/C4) ──
+// Cadence's promise is proactive — a sweep that finds a new reply owed must
+// reach the user without the app being open. The backend diffs queue builds
+// (backend/notifier.js) and calls back into the hooks registered here.
+
+// Template tray icon (metronome dot), generated programmatically — the repo
+// ships no image assets. Template = macOS recolors it for menubar theme.
+const _TRAY_PNG_16 =
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAeUlEQVR4nJWRyxGAIAxEXyPUwdn+6Ca1cLEZHZKIQXTUzSGQ3ckXfmChsLFRWGYyIUoeJqSRXge62RolMtGWpde2QCWrz1SPeC/FvxnU48LWbihQ9W0CPIfMggODIJYwXErEJo2+NBnHrJ0MY35Y1Ouqz2MJcn+sR+xz1XQ38bwOzAAAAABJRU5ErkJggg==";
+const _TRAY_PNG_32 =
+  "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAQAAADZc7J/AAAA6ElEQVR4nM1VuxHDIAx9wzCDZ2AHdqB070Vo2cE9I1EnR3x2kEBATC6Xp8ZGH6SHEMA/Y4GBhYXB8qmrhkfEI5MIDz26705cc9n7uVjR+RTbct+67km2+7s3s1iG3ZNUuJCpq9PJoAsTB3V9K7hCzw7VM/X6Wj3/ElZm4WmAyHZHEQAsi9giUFUDKGaVEWmIIlzrNAAQiJ2ROsCJAWgRth+AQwwglcAhliCRSNEgUTrGVgGRKuuNlKPTSPVWfiffbeX6ZQpwcIy6Q4rL9IXrPD1QMD/SxrJoDlXMj/UDUw9Lnsvtp+2XeAJYB866HUd4lwAAAABJRU5ErkJggg==";
+
+let tray = null;
+let trayCount = 0;
+
+function _trayMenu() {
+  return Menu.buildFromTemplate([
+    {
+      label: trayCount > 0
+        ? `${trayCount} item${trayCount === 1 ? "" : "s"} need you`
+        : "Queue is clear",
+      enabled: false,
+    },
+    { type: "separator" },
+    { label: "Open Cadence", click: focusWindow },
+    {
+      label: "Sync now",
+      click: () => {
+        // Full sweep cycle via the runner server.js registered; safe no-op
+        // when Telegram isn't configured yet.
+        try { require("./backend/telegram").sweepSoon(); } catch { /* best-effort */ }
+      },
+    },
+    { type: "separator" },
+    { label: "Quit Cadence", click: () => app.quit() },
+  ]);
+}
+
+function createTray() {
+  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${_TRAY_PNG_16}`);
+  icon.addRepresentation({
+    scaleFactor: 2,
+    dataURL: `data:image/png;base64,${_TRAY_PNG_32}`,
+  });
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
+  tray.setToolTip("Cadence");
+  tray.setContextMenu(_trayMenu());
+}
+
+function registerPulse() {
+  notifier.setNotifier(({ title, body }) => {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body });
+    n.on("click", focusWindow);
+    n.show();
+  });
+  notifier.setBadge((count) => {
+    trayCount = count;
+    if (app.dock) app.dock.setBadge(count > 0 ? String(count) : "");
+    if (tray) {
+      tray.setTitle(count > 0 ? ` ${count}` : "");
+      tray.setContextMenu(_trayMenu());
+    }
+  });
+  // Login item registration only makes sense for the packaged .app — in dev
+  // it would point launchd at the bare Electron binary.
+  notifier.setLoginItemApplier((enabled) => {
+    if (!app.isPackaged) return;
+    app.setLoginItemSettings({ openAtLogin: enabled });
+  });
+  notifier.applyLoginItem(settings.status().launchAtLogin);
+}
+
 app.whenReady().then(async () => {
   // Start the Node backend before opening the window, so the app is up by
   // the time the renderer loads :3456.
@@ -125,6 +214,8 @@ app.whenReady().then(async () => {
     return;
   }
   createWindow();
+  createTray();
+  registerPulse();
 });
 
 // macOS apps stay alive when all windows close; other platforms quit.
