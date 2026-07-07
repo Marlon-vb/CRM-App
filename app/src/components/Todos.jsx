@@ -631,6 +631,14 @@ export const Todos = ({ relationships = [], todos = [], setTodos, onOpenClient, 
     if (focusedId === todo.id) setFocusedId(null);
     try {
       await api.deleteTodo(todo.id);
+      // The backend soft-deletes, so undo is a tombstone flip — surface it.
+      showToast?.("Task deleted", {
+        label: "Undo",
+        fn: async () => {
+          await api.restoreTodo(todo.id);
+          setTodos(await api.listTodos());
+        },
+      });
     } catch (e) {
       setTodos(snapshot);
       showToast?.(`Delete failed — ${e.message}`);

@@ -48,11 +48,11 @@ function QueueCard({ item, index, onActed, onError }) {
     }).start();
   }, [anim, index]);
 
-  const act = async (fn, label) => {
+  const act = async (fn, label, undoFn = null) => {
     setBusy(true);
     try {
       await fn();
-      onActed(item.key, label);
+      onActed(item.key, label, undoFn);
     } catch (e) {
       onError(e.message);
     } finally {
@@ -60,28 +60,47 @@ function QueueCard({ item, index, onActed, onError }) {
     }
   };
 
-  const handleDone = () =>
-    act(async () => {
-      if (item.kind === "todo" && item.todoId != null) {
-        await cloud.patchTodo(item.todoId, { completed: true });
-      } else {
+  // Honest semantics (audit): "Handled" = snooze until tomorrow 09:00, and
+  // the toast says so. Bundled TODOS complete; promises are NOT auto-marked
+  // kept without an actual send. Every action carries an Undo.
+  const handleDone = () => {
+    if (item.kind === "todo" && item.todoId != null) {
+      return act(
+        () => cloud.patchTodo(item.todoId, { completed: true }),
+        "Todo completed",
+        () => cloud.patchTodo(item.todoId, { completed: false })
+      );
+    }
+    const completedIds = [];
+    return act(
+      async () => {
         await cloud.upsertSnooze(item.key, "until", snoozeUntil("tomorrow"), null);
         for (const b of item.bundle || []) {
-          if (b.type === "todo") await cloud.patchTodo(b.id, { completed: true }).catch(() => {});
-          if (b.type === "promise") await cloud.resolvePromise(b.id, "kept").catch(() => {});
+          if (b.type !== "todo") continue;
+          try { await cloud.patchTodo(b.id, { completed: true }); completedIds.push(b.id); } catch (e) { /* counted below */ }
         }
+      },
+      "Handled — back tomorrow 9:00 if still owed",
+      async () => {
+        await cloud.clearSnooze(item.key);
+        for (const id of completedIds) await cloud.patchTodo(id, { completed: false }).catch(() => {});
       }
-    }, "Done ✓ — the Mac applies it on its next sync");
+    );
+  };
 
   const handleSnooze = (option) => {
     setSnoozeOpen(false);
-    return act(async () => {
-      if (option === "after_reply") {
-        await cloud.upsertSnooze(item.key, "after_reply", null, lastInboundDate(item));
-      } else {
-        await cloud.upsertSnooze(item.key, "until", snoozeUntil(option), null);
-      }
-    }, "Snoozed 💤");
+    return act(
+      async () => {
+        if (option === "after_reply") {
+          await cloud.upsertSnooze(item.key, "after_reply", null, lastInboundDate(item));
+        } else {
+          await cloud.upsertSnooze(item.key, "until", snoozeUntil(option), null);
+        }
+      },
+      "Snoozed 💤",
+      () => cloud.clearSnooze(item.key)
+    );
   };
 
   const openTelegram = async () => {
@@ -170,10 +189,10 @@ function QueueCard({ item, index, onActed, onError }) {
             </TouchableOpacity>
           ) : null}
           <TouchableOpacity style={[s.btn, s.btnDone]} disabled={busy} onPress={handleDone}>
-            <Text style={s.btnDoneText}>{busy ? "…" : "Done"}</Text>
+            <Text style={s.btnDoneText}>{busy ? "…" : item.kind === "todo" ? "Done" : "Handled"}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.btn} disabled={busy} onPress={() => setSnoozeOpen(true)}>
-            <Text style={s.btnText}>zZ</Text>
+            <Text style={s.btnText}>Snooze</Text>
           </TouchableOpacity>
         </View>
 

@@ -152,6 +152,20 @@ function delete_todo(todo_id) {
   );
 }
 
+// Undo for delete_todo — the tombstone flips back. Powers the delete
+// toast's Undo button (deletes were the only truly unrecoverable action
+// in a soft-delete system).
+function restore_todo(todo_id) {
+  return (
+    getDb()
+      .prepare(
+        "UPDATE todos SET deleted = 0, deleted_at = NULL, " +
+          "updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted = 1"
+      )
+      .run(todo_id).changes > 0
+  );
+}
+
 function reorder_todos(ordered_ids) {
   const stmt = getDb().prepare(
     "UPDATE todos SET sort_order = ?, updated_at = CURRENT_TIMESTAMP " +
@@ -239,6 +253,7 @@ module.exports = {
   create_todo,
   update_todo,
   delete_todo,
+  restore_todo,
   reorder_todos,
   upsert_extracted_todos,
 };

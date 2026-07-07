@@ -70,6 +70,7 @@ module.exports = {
   create_todo:            todos.create_todo,
   update_todo:            todos.update_todo,
   delete_todo:            todos.delete_todo,
+  restore_todo:           todos.restore_todo,
   reorder_todos:          todos.reorder_todos,
   upsert_extracted_todos: todos.upsert_extracted_todos,
 

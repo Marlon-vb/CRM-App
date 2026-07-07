@@ -399,6 +399,11 @@ app.post("/api/todos", wrap((req, res) => {
   res.status(201).json(db.create_todo(req.body || {}));
 }));
 
+app.post("/api/todos/:id/restore", wrap((req, res) => {
+  if (db.restore_todo(idParam(req))) return res.json({ restored: true });
+  throw new HttpError(404, "Todo not found or not deleted");
+}));
+
 app.post("/api/todos/reorder", wrap((req, res) => {
   const ordered = (req.body || {}).order;
   if (!Array.isArray(ordered)) {
@@ -467,6 +472,26 @@ app.post("/api/followups/unsnooze", wrap((req, res) => {
   const { itemKey } = req.body || {};
   if (!itemKey) throw new HttpError(400, "itemKey required");
   res.json(db.clear_fu_snooze(itemKey));
+}));
+
+// Everything currently parked, with human labels — powers the "Snoozed (n)"
+// drawer so mark-handled/snooze stop being an invisible state (audit C7).
+app.get("/api/followups/snoozes", wrap((req, res) => {
+  const snoozes = db.list_fu_snoozes();
+  const relById = new Map(db.list_relationships(true).map((r) => [r.id, r]));
+  const rows = Object.entries(snoozes).map(([itemKey, s]) => {
+    const [kind, idPart] = itemKey.split(":");
+    let label = itemKey;
+    if (["reply", "cold", "promise"].includes(kind)) {
+      label = relById.get(Number(idPart))?.name || itemKey;
+    } else if (kind === "todo") {
+      try { label = db.list_todos(true).find((t) => t.id === Number(idPart))?.task || itemKey; } catch (e) { /* raw key */ }
+    } else if (kind === "recap") {
+      try { label = db.get_note_by_id(Number(idPart))?.title || itemKey; } catch (e) { /* raw key */ }
+    }
+    return { itemKey, kind, label, mode: s.mode, until: s.until, createdAt: s.createdAt };
+  });
+  res.json(rows);
 }));
 
 // No body — promises are extracted from the backend's own sweep cache.

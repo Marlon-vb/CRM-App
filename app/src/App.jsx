@@ -112,10 +112,12 @@ export default function Cadence() {
   // dependency array (dep arrays are evaluated at render time; a below-the-
   // fold declaration is a TDZ ReferenceError → blank app).
 
-  // Plain string toast (3s).
-  const showToast = useCallback((msg) => {
-    setToast({ msg, action: null, kind: "success" });
-    setTimeout(() => setToast(null), 3000);
+  // Toast, optionally with an action button ({label, fn}) — the undo
+  // mechanism every destructive triage path now rides on. Action toasts
+  // linger longer so the user can actually reach the button.
+  const showToast = useCallback((msg, action = null) => {
+    setToast({ msg, action, kind: "success" });
+    setTimeout(() => setToast(null), action ? 6000 : 3000);
   }, []);
 
   // Error toast — same shape but rendered with a red icon and border so
@@ -352,9 +354,13 @@ export default function Cadence() {
     try { setRelationships(await api.listRelationships()); } catch { /* keep stale list */ }
   }, []);
   // Open a relationship: Cadence has no detail modal — the Clients tab IS
-  // the record surface. Accepts the relationship id for future use (e.g.
-  // row highlight) but today just switches tabs.
-  const handleOpenClient = useCallback(() => setTab("clients"), [setTab]);
+  // the record surface. The id scrolls-to + flashes the row (audit U6).
+  const [focusClientId, setFocusClientId] = useState(null);
+  const handleOpenClient = useCallback((relId = null) => {
+    setFocusClientId(relId ?? null);
+    setTab("clients");
+  }, [setTab]);
+  const handleClientFocusHandled = useCallback(() => setFocusClientId(null), []);
   const openSettings = useCallback(() => setTab("settings"), [setTab]);
 
   // Sidebar badge: todos that need attention today (overdue, due today, or My Day)
@@ -690,6 +696,8 @@ export default function Cadence() {
                 relationships={relationships}
                 refetch={refetchAll}
                 showToast={showToast}
+                focusId={focusClientId}
+                onFocusHandled={handleClientFocusHandled}
               />
             )}
 

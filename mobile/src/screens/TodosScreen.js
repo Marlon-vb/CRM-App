@@ -25,7 +25,7 @@ const PRIORITY_COLOR = { high: "#E5747A", medium: "#F5C242", low: "#5E7190" };
 
 /* Read/act todos: complete + star sync back to the Mac (applied on its
    next sync ≤5 min; the Mac stays the only place todos are created). */
-export default function TodosScreen({ todos, relationships, refreshing, onRefresh, onToggled, onError }) {
+export default function TodosScreen({ todos, relationships, refreshing, onRefresh, onToggled, onNotify, onError }) {
   const relById = new Map((relationships || []).map((r) => [r.local_id, r]));
   const open = (todos || []).filter((t) => !t.completed);
   const sections = BUCKETS
@@ -41,6 +41,13 @@ export default function TodosScreen({ todos, relationships, refreshing, onRefres
     onToggled(todo.local_id, patch); // optimistic
     try {
       await cloud.patchTodo(todo.local_id, patch);
+      // Completing removes the row instantly — a mis-tap needs a way back.
+      if (patch.completed) {
+        onNotify?.("Todo completed", async () => {
+          await cloud.patchTodo(todo.local_id, { completed: false });
+          onToggled(todo.local_id, { completed: false });
+        });
+      }
     } catch (e) {
       onToggled(todo.local_id, { completed: todo.completed, starred: todo.starred }); // rollback
       onError(e.message);

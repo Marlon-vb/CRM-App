@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Minus, Archive, ArchiveRestore, Trash2, ChevronRight, ChevronDown } from "lucide-react";
 import { api } from "../lib/api";
 import { timeAgo } from "../lib/utils";
@@ -11,12 +11,20 @@ import { CompanyLogo } from "./atoms/CompanyLogo";
    the per-relationship cadence, and archive/delete controls. Rows come
    from suggestions accepted in the Queue or from the inline add form here.
 
+   Fields edit in place (audit C6/M7-UX): click a name or company to type
+   over it, click the Telegram badge to rebind, "+ link chat" to attach a
+   DM or side room. No modal — the row IS the record.
+
    Props (from App.jsx):
-     relationships — the list App keeps in state (active + archived)
-     refetch       — App's refetchAll; every mutation persists via
-                     lib/api.js then refetches so all tabs see the change
-     showToast     — confirmation toast (App passes no error variant here,
-                     so failures reuse it with the reason in the message)
+     relationships  — the list App keeps in state (active + archived)
+     refetch        — App's refetchAll; every mutation persists via
+                      lib/api.js then refetches so all tabs see the change
+     showToast      — confirmation toast (App passes no error variant here,
+                      so failures reuse it with the reason in the message)
+     focusId        — relationship id another surface asked to "open"
+                      (audit U6) — scroll to the row and flash it
+     onFocusHandled — ack callback; App nulls focusId so the same id can
+                      be requested again later
 */
 
 const MONO = "ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
@@ -32,6 +40,23 @@ const inputStyle = {
   outline: "none",
   minWidth: 0,
 };
+
+/* Compact variants for the in-row mini-forms (rebind / link chat) —
+   same shape as Settings' primaryBtn/ghostBtn, one notch smaller. */
+const miniInputStyle = {
+  ...inputStyle,
+  fontSize: "var(--font-sm)",
+  padding: "var(--space-1) var(--space-2)",
+};
+const miniPrimaryBtn = "px-2 py-1 rounded-md text-xs font-semibold disabled:opacity-50";
+const miniPrimaryStyle = { background: "var(--brand)", color: "var(--brand-fg)", flexShrink: 0 };
+const miniGhostBtn = "px-2 py-1 rounded-md text-xs font-medium disabled:opacity-50";
+const miniGhostStyle = { background: "var(--surface-3)", color: "var(--text)", flexShrink: 0 };
+
+/* Case-insensitive substring match over the fields a user thinks of a
+   client by — display name, company, and the bound Telegram group. */
+const matchesQuery = (rel, q) =>
+  [rel.name, rel.company, rel.telegramChat?.group].some((s) => (s || "").toLowerCase().includes(q));
 
 /* Small square icon button — stepper / archive / delete. */
 const IconBtn = ({ title, onClick, disabled, danger = false, children }) => (
@@ -58,27 +83,35 @@ const IconBtn = ({ title, onClick, disabled, danger = false, children }) => (
 
 /* Telegram binding badge — the group name when bound, "not linked" when the
    sweep has nothing to join on. A chat_id-only binding (accepted suggestion
-   whose dialog title changed) still counts as linked. */
-const TelegramBadge = ({ telegramChat }) => {
+   whose dialog title changed) still counts as linked. Clicking it (active
+   rows only) opens the rebind form in the row. */
+const TelegramBadge = ({ telegramChat, onClick }) => {
   const linked = Boolean(telegramChat?.group || telegramChat?.chatId);
   return (
-    <span
-      title={linked ? `Telegram: ${telegramChat.group || `chat ${telegramChat.chatId}`}` : "No Telegram binding — add a group name so the sweep can match this chat"}
+    <button
+      onClick={onClick}
+      title={
+        linked
+          ? `Telegram: ${telegramChat.group || `chat ${telegramChat.chatId}`}${onClick ? " — click to rebind or clear" : ""}`
+          : `No Telegram binding${onClick ? " — click to add a group name so the sweep can match this chat" : ""}`
+      }
       style={{
         display: "inline-flex", alignItems: "center", gap: "var(--space-1)",
         padding: "var(--space-0-5) var(--space-1-5)",
         borderRadius: "var(--radius-pill)",
+        border: "none",
         fontSize: "var(--font-xs)", fontFamily: MONO,
         background: linked ? "var(--tone-skyblue-bg)" : "var(--surface-3)",
         color: linked ? "var(--telegram)" : "var(--text-faint)",
         maxWidth: 180, flexShrink: 0,
+        cursor: onClick ? "pointer" : "default",
       }}
     >
       <span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor", flexShrink: 0 }} />
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {linked ? (telegramChat.group || "linked") : "not linked"}
       </span>
-    </span>
+    </button>
   );
 };
 
@@ -103,7 +136,11 @@ const CadenceStepper = ({ value, busy, onSet }) => (
   </div>
 );
 
-const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete, onUnlinkChat }) => {
+const ClientRow = ({
+  rel, busy, focused, onFocusHandled,
+  onSetCadence, onArchive, onUnarchive, onDelete,
+  onUnlinkChat, onInlineSave, onRebind, onLinkChat,
+}) => {
   const archived = Boolean(rel.archivedAt);
   // Newest activity across the primary binding AND linked chats (DMs, side
   // rooms) — a client whose group is quiet but whose DM is live isn't stale.
@@ -112,14 +149,112 @@ const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete, 
     .sort()
     .pop() || null;
   const linkedChats = rel.chats || [];
+
+  // Inline name/company edit — click the text, type, Enter/blur saves,
+  // Escape cancels. Archived rows stay read-only.
+  const [editField, setEditField] = useState(null); // null | "name" | "company"
+  const [editValue, setEditValue] = useState("");
+  // Telegram rebind form (opened from the badge).
+  const [rebindOpen, setRebindOpen] = useState(false);
+  const [bindGroup, setBindGroup] = useState("");
+  const [bindChatId, setBindChatId] = useState("");
+  // "+ link chat" mini-form — attach a DM / side room beyond the binding.
+  const [chatFormOpen, setChatFormOpen] = useState(false);
+  const [chatKind, setChatKind] = useState("dm");
+  const [chatName, setChatName] = useState("");
+  const [chatContact, setChatContact] = useState("");
+  // Focus flash (audit U6) — border lights up brand-colored, fades back.
+  const [flash, setFlash] = useState(false);
+  const rowRef = useRef(null);
+  const flashTimer = useRef(null);
+
+  // Focus highlight: App sets focusId when another surface (queue card,
+  // todo chip) wants to "open" this client — the Clients tab IS the record
+  // surface, so opening = scroll here and flash the border. We ack via
+  // onFocusHandled immediately; the flash timer lives in a ref so the prop
+  // flipping back to null doesn't cut the highlight short, and a NEW
+  // focusId targeting this row while mounted re-fires cleanly.
+  useEffect(() => {
+    if (!focused) return;
+    rowRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    setFlash(true);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(false), 2000);
+    onFocusHandled?.();
+  }, [focused, onFocusHandled]);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+
+  const startEdit = (field) => {
+    if (archived || busy) return;
+    setEditField(field);
+    setEditValue(field === "name" ? rel.name : rel.company || "");
+  };
+  const commitEdit = () => {
+    const field = editField;
+    setEditField(null);
+    if (!field) return;
+    const next = editValue.trim();
+    const current = field === "name" ? rel.name : rel.company || "";
+    if (next === current) return;            // no-op edit — skip the round-trip
+    if (field === "name" && !next) return;   // name is required — blanking = cancel
+    onInlineSave(rel, { [field]: next || null }); // empty company clears it
+  };
+  const editKeys = (e) => {
+    if (e.key === "Enter") e.currentTarget.blur(); // blur commits (single save path)
+    else if (e.key === "Escape") setEditField(null); // unmount w/o commit — removal fires no blur
+  };
+  const editInput = (fontWeight) => (
+    <input
+      autoFocus
+      value={editValue}
+      onChange={(e) => setEditValue(e.target.value)}
+      onBlur={commitEdit}
+      onKeyDown={editKeys}
+      style={{ ...miniInputStyle, fontWeight, flex: 1, maxWidth: 260 }}
+    />
+  );
+
+  const openRebind = () => {
+    if (archived) return;
+    if (!rebindOpen) {
+      // Prefill from the current binding so "edit" starts from reality.
+      setBindGroup(rel.telegramChat?.group || "");
+      setBindChatId(rel.telegramChat?.chatId != null ? String(rel.telegramChat.chatId) : "");
+    }
+    setRebindOpen(!rebindOpen);
+  };
+  const saveRebind = () => {
+    const g = bindGroup.trim();
+    const cid = bindChatId.trim();
+    if (!g && !cid) return; // at least one — an all-null "save" is Clear's job
+    setRebindOpen(false);
+    onRebind(rel, { telegramGroup: g || null, telegramChatId: cid || null });
+  };
+  const clearRebind = () => {
+    setRebindOpen(false);
+    onRebind(rel, { telegramGroup: null, telegramChatId: null }, true);
+  };
+
+  const saveLinkChat = () => {
+    const g = chatName.trim();
+    if (!g) return;
+    setChatFormOpen(false);
+    onLinkChat(rel, { kind: chatKind, telegramGroup: g, contactName: chatContact.trim() || null });
+    setChatName(""); setChatContact(""); setChatKind("dm");
+  };
+
   return (
     <div
+      ref={rowRef}
       className="flex items-center"
       style={{
         gap: "var(--space-3)",
         padding: "var(--space-2-5) var(--space-3)",
         borderRadius: "var(--radius-lg)",
-        border: "1px solid var(--border)",
+        border: "1px solid",
+        borderColor: flash ? "var(--brand)" : "var(--border)",
+        boxShadow: flash ? "0 0 0 1px var(--brand)" : "none",
+        transition: "border-color 600ms ease, box-shadow 600ms ease",
         background: "var(--surface-2)",
         opacity: archived ? 0.55 : 1,
       }}
@@ -127,18 +262,85 @@ const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete, 
       <CompanyLogo company={rel.name} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-center" style={{ gap: "var(--space-2)" }}>
-          <span style={{ fontSize: "var(--font-md)", fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {rel.name}
-          </span>
-          <TelegramBadge telegramChat={rel.telegramChat} />
+          {editField === "name" ? (
+            editInput(600)
+          ) : (
+            <span
+              onClick={() => startEdit("name")}
+              title={archived ? undefined : "Click to edit name"}
+              style={{
+                fontSize: "var(--font-md)", fontWeight: 600, color: "var(--text)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                cursor: archived ? "default" : "text",
+              }}
+            >
+              {rel.name}
+            </span>
+          )}
+          <TelegramBadge telegramChat={rel.telegramChat} onClick={archived ? undefined : openRebind} />
         </div>
-        <div style={{ fontSize: "var(--font-sm)", color: "var(--text-muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {rel.company || <span style={{ fontStyle: "italic", color: "var(--text-faint)" }}>No company</span>}
-        </div>
+        {editField === "company" ? (
+          <div style={{ marginTop: 1 }}>{editInput(400)}</div>
+        ) : (
+          <div
+            onClick={() => startEdit("company")}
+            title={archived ? undefined : "Click to edit company"}
+            style={{
+              fontSize: "var(--font-sm)", color: "var(--text-muted)", marginTop: 1,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              cursor: archived ? "default" : "text",
+            }}
+          >
+            {rel.company || <span style={{ fontStyle: "italic", color: "var(--text-faint)" }}>No company</span>}
+          </div>
+        )}
+        {/* Telegram rebind — group name and/or chat id (at least one to save;
+            the sweep self-heals the chat_id from the name after the first
+            match). NOTE: the backend auto-schedules a debounced sweep when a
+            PATCH sets a binding (routes.js sweepIfBound → telegram.sweepSoon),
+            so fresh insights arrive without waiting for the 30-min timer. */}
+        {rebindOpen && !archived && (
+          <div className="flex items-center" style={{ gap: "var(--space-1-5)", marginTop: "var(--space-1-5)", flexWrap: "wrap" }}>
+            <input
+              autoFocus
+              style={{ ...miniInputStyle, flex: 1, minWidth: 140 }}
+              placeholder="Telegram group name"
+              value={bindGroup}
+              onChange={(e) => setBindGroup(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveRebind(); else if (e.key === "Escape") setRebindOpen(false); }}
+            />
+            <input
+              style={{ ...miniInputStyle, width: 110, fontFamily: MONO }}
+              placeholder="chat id"
+              value={bindChatId}
+              onChange={(e) => setBindChatId(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveRebind(); else if (e.key === "Escape") setRebindOpen(false); }}
+            />
+            <button
+              className={miniPrimaryBtn} style={miniPrimaryStyle}
+              disabled={busy || (!bindGroup.trim() && !bindChatId.trim())}
+              onClick={saveRebind}
+            >
+              Save
+            </button>
+            <button
+              className={miniGhostBtn} style={miniGhostStyle}
+              title="Remove the Telegram binding — the sweep stops matching this client"
+              disabled={busy || !(rel.telegramChat?.group || rel.telegramChat?.chatId)}
+              onClick={clearRebind}
+            >
+              Clear binding
+            </button>
+            <button className={miniGhostBtn} style={miniGhostStyle} disabled={busy} onClick={() => setRebindOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
         {/* Linked chats beyond the primary binding — DMs with the client's
             people, side rooms. Unlink is instant; the sweep just stops
-            reading that chat. */}
-        {linkedChats.length > 0 && (
+            reading that chat. The "+ link chat" chip shows even with zero
+            linked chats so the surface isn't a dead end. */}
+        {(linkedChats.length > 0 || !archived) && (
           <div className="flex items-center" style={{ gap: "var(--space-1)", marginTop: "var(--space-1)", flexWrap: "wrap" }}>
             {linkedChats.map((c) => (
               <span
@@ -168,6 +370,73 @@ const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete, 
                 )}
               </span>
             ))}
+            {!archived && (
+              <button
+                title="Link another chat (a DM or side room) to this client"
+                disabled={busy}
+                onClick={() => setChatFormOpen((v) => !v)}
+                style={{
+                  display: "inline-flex", alignItems: "center",
+                  padding: "1px var(--space-1-5)",
+                  borderRadius: "var(--radius-pill)",
+                  border: "1px dashed var(--border)",
+                  fontSize: "var(--font-xs)", fontFamily: MONO,
+                  background: "none", color: "var(--text-faint)",
+                  cursor: "pointer",
+                }}
+              >
+                + link chat
+              </button>
+            )}
+          </div>
+        )}
+        {/* Link-chat mini-form — the dialog name is the sweep's match key
+            (self-heals to chat_id after the first match); contact name is
+            just the display label for DM chips. */}
+        {chatFormOpen && !archived && (
+          <div className="flex items-center" style={{ gap: "var(--space-1-5)", marginTop: "var(--space-1-5)", flexWrap: "wrap" }}>
+            <div style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: "var(--radius-pill)", overflow: "hidden", flexShrink: 0 }}>
+              {["dm", "group"].map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setChatKind(k)}
+                  style={{
+                    padding: "2px var(--space-2)",
+                    fontSize: "var(--font-xs)", fontFamily: MONO,
+                    border: "none", cursor: "pointer",
+                    background: chatKind === k ? "var(--brand)" : "transparent",
+                    color: chatKind === k ? "var(--brand-fg)" : "var(--text-secondary)",
+                  }}
+                >
+                  {k === "dm" ? "DM" : "group"}
+                </button>
+              ))}
+            </div>
+            <input
+              autoFocus
+              style={{ ...miniInputStyle, flex: 1, minWidth: 130 }}
+              placeholder="Chat / dialog name"
+              value={chatName}
+              onChange={(e) => setChatName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveLinkChat(); else if (e.key === "Escape") setChatFormOpen(false); }}
+            />
+            <input
+              style={{ ...miniInputStyle, width: 140 }}
+              placeholder="Contact name (optional)"
+              value={chatContact}
+              onChange={(e) => setChatContact(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveLinkChat(); else if (e.key === "Escape") setChatFormOpen(false); }}
+            />
+            <button
+              className={miniPrimaryBtn} style={miniPrimaryStyle}
+              disabled={busy || !chatName.trim()}
+              onClick={saveLinkChat}
+            >
+              Link
+            </button>
+            <button className={miniGhostBtn} style={miniGhostStyle} disabled={busy} onClick={() => setChatFormOpen(false)}>
+              Cancel
+            </button>
           </div>
         )}
       </div>
@@ -198,7 +467,7 @@ const ClientRow = ({ rel, busy, onSetCadence, onArchive, onUnarchive, onDelete, 
   );
 };
 
-export const Clients = ({ relationships = [], refetch, showToast }) => {
+export const Clients = ({ relationships = [], refetch, showToast, focusId = null, onFocusHandled }) => {
   // Inline add form (top of the list).
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
@@ -208,9 +477,27 @@ export const Clients = ({ relationships = [], refetch, showToast }) => {
   // Row-level mutation guard — one in-flight mutation at a time per row.
   const [busyId, setBusyId] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  // Search — case-insensitive substring over name / company / Telegram group.
+  const [query, setQuery] = useState("");
 
   const active = useMemo(() => relationships.filter((r) => !r.archivedAt), [relationships]);
   const archived = useMemo(() => relationships.filter((r) => r.archivedAt), [relationships]);
+
+  const q = query.trim().toLowerCase();
+  const filteredActive = useMemo(() => (q ? active.filter((r) => matchesQuery(r, q)) : active), [active, q]);
+  const filteredArchived = useMemo(() => (q ? archived.filter((r) => matchesQuery(r, q)) : archived), [archived, q]);
+
+  // A focus request may point at a row the current view hides (archived +
+  // collapsed, or filtered out by the search) — un-hide it BEFORE the row's
+  // own scroll-and-flash effect can run. Unknown ids are acked right away so
+  // a stale focusId can't fire a surprise flash if that rel appears later.
+  useEffect(() => {
+    if (focusId == null) return;
+    const rel = relationships.find((r) => r.id === focusId);
+    if (!rel) { onFocusHandled?.(); return; }
+    if (rel.archivedAt) setShowArchived(true);
+    setQuery((cur) => (cur.trim() && !matchesQuery(rel, cur.trim().toLowerCase()) ? "" : cur));
+  }, [focusId, relationships, onFocusHandled]);
 
   // Shared mutate-then-refetch wrapper for row actions. Errors surface via
   // the toast (with the reason) — the list itself stays consistent because
@@ -268,12 +555,38 @@ export const Clients = ({ relationships = [], refetch, showToast }) => {
       `Unlinked ${chat.contactName || chat.group || "chat"} from ${rel.name}`
     );
 
+  // Inline name/company save (audit C6) — one field per PATCH.
+  const handleInlineSave = (rel, patch) =>
+    run(rel.id, () => api.updateRelationship(rel.id, patch), "Saved");
+
+  // Telegram rebind (audit M7-UX). NOTE: the backend auto-triggers a
+  // debounced sweep whenever a PATCH sets telegramGroup/telegramChatId
+  // (routes.js sweepIfBound → telegram.sweepSoon), so the new binding gets
+  // insights without waiting for the 30-min timer.
+  const handleRebind = (rel, patch, cleared = false) =>
+    run(
+      rel.id,
+      () => api.updateRelationship(rel.id, patch),
+      cleared ? `Telegram binding cleared for ${rel.name}` : `Telegram binding saved — sweep scheduled`
+    );
+
+  const handleLinkChat = (rel, body) =>
+    run(
+      rel.id,
+      () => api.addRelationshipChat(rel.id, body),
+      `Linked ${body.contactName || body.telegramGroup} to ${rel.name}`
+    );
+
   const rowProps = {
     onSetCadence: handleSetCadence,
     onArchive: handleArchive,
     onUnarchive: handleUnarchive,
     onDelete: handleDelete,
     onUnlinkChat: handleUnlinkChat,
+    onInlineSave: handleInlineSave,
+    onRebind: handleRebind,
+    onLinkChat: handleLinkChat,
+    onFocusHandled,
   };
 
   return (
@@ -330,6 +643,25 @@ export const Clients = ({ relationships = [], refetch, showToast }) => {
         )}
       </div>
 
+      {/* Search (audit U6) — filters active AND archived; the count reads
+          "matches of total" while a query is live. Escape clears. */}
+      {relationships.length > 0 && (
+        <div className="flex items-center" style={{ gap: "var(--space-2)" }}>
+          <input
+            style={{ ...inputStyle, flex: 1 }}
+            placeholder="Search by name, company, or Telegram group…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
+          />
+          {q && (
+            <span style={{ fontFamily: MONO, fontSize: "var(--font-sm)", color: "var(--text-faint)", flexShrink: 0 }}>
+              {filteredActive.length + filteredArchived.length} of {relationships.length}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Active relationships */}
       {active.length === 0 ? (
         <div
@@ -339,17 +671,25 @@ export const Clients = ({ relationships = [], refetch, showToast }) => {
           No relationships yet — add one above, or accept a suggestion from the
           Queue's "New conversations" block.
         </div>
+      ) : filteredActive.length === 0 ? (
+        <div
+          className="text-center rounded-lg border"
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", padding: "var(--space-6)", color: "var(--text-muted)", fontSize: "var(--font-md)" }}
+        >
+          No active clients match "{query.trim()}".
+        </div>
       ) : (
         <div className="space-y-2">
-          {active.map((rel) => (
-            <ClientRow key={rel.id} rel={rel} busy={busyId === rel.id} {...rowProps} />
+          {filteredActive.map((rel) => (
+            <ClientRow key={rel.id} rel={rel} busy={busyId === rel.id} focused={focusId === rel.id} {...rowProps} />
           ))}
         </div>
       )}
 
       {/* Archived — collapsed by default; kept out of the queue engine but
-          restorable (unarchive) or permanently deletable. */}
-      {archived.length > 0 && (
+          restorable (unarchive) or permanently deletable. Hidden entirely
+          when a search matches none of them. */}
+      {archived.length > 0 && (!q || filteredArchived.length > 0) && (
         <div style={{ paddingTop: "var(--space-2)" }}>
           <button
             className="flex items-center"
@@ -363,12 +703,12 @@ export const Clients = ({ relationships = [], refetch, showToast }) => {
             }}
           >
             {showArchived ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            Archived ({archived.length})
+            Archived ({filteredArchived.length}{q ? ` of ${archived.length}` : ""})
           </button>
           {showArchived && (
             <div className="space-y-2" style={{ marginTop: "var(--space-2)" }}>
-              {archived.map((rel) => (
-                <ClientRow key={rel.id} rel={rel} busy={busyId === rel.id} {...rowProps} />
+              {filteredArchived.map((rel) => (
+                <ClientRow key={rel.id} rel={rel} busy={busyId === rel.id} focused={focusId === rel.id} {...rowProps} />
               ))}
             </div>
           )}

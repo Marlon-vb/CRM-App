@@ -50,10 +50,12 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
-  const showToast = useCallback((msg, isError = false) => {
+  // Toast with optional undo action — the safety net under every one-tap
+  // triage action (audit finding 3). Action toasts linger longer.
+  const showToast = useCallback((msg, isError = false, action = null) => {
     clearTimeout(toastTimer.current);
-    setToast({ msg, isError });
-    toastTimer.current = setTimeout(() => setToast(null), isError ? 5000 : 3000);
+    setToast({ msg, isError, action });
+    toastTimer.current = setTimeout(() => setToast(null), action ? 6000 : isError ? 5000 : 3000);
   }, []);
 
   const refetch = useCallback(async (manual = false) => {
@@ -110,7 +112,8 @@ export default function App() {
 
   // A queue action succeeded: hide the card now — the Mac's next publish
   // makes it official (or resurfaces it if the snooze already lapsed).
-  const handleActed = useCallback((itemKey, msg) => {
+  // undoFn (optional) reverses the cloud write AND un-hides the card.
+  const handleActed = useCallback((itemKey, msg, undoFn = null) => {
     if (itemKey) {
       setQueue((prev) => {
         const hiddenKeys = new Set(prev.hiddenKeys);
@@ -118,7 +121,21 @@ export default function App() {
         return { ...prev, hiddenKeys };
       });
     }
-    if (msg) showToast(msg);
+    if (msg) {
+      showToast(msg, false, undoFn ? {
+        label: "Undo",
+        fn: async () => {
+          await undoFn();
+          if (itemKey) {
+            setQueue((prev) => {
+              const hiddenKeys = new Set(prev.hiddenKeys);
+              hiddenKeys.delete(itemKey);
+              return { ...prev, hiddenKeys };
+            });
+          }
+        },
+      } : null);
+    }
   }, [showToast]);
 
   const handleTodoToggled = useCallback((localId, patch) => {
@@ -159,6 +176,7 @@ export default function App() {
             todos={todos} relationships={relationships} refreshing={refreshing}
             onRefresh={() => refetch(true)}
             onToggled={handleTodoToggled}
+            onNotify={(msg, undoFn) => showToast(msg, false, undoFn ? { label: "Undo", fn: undoFn } : null)}
             onError={(m) => showToast(m, true)}
           />
         )}
@@ -172,7 +190,19 @@ export default function App() {
 
       {toast && (
         <View style={[s.toast, toast.isError && s.toastError]}>
-          <Text style={s.toastText}>{toast.msg}</Text>
+          <Text style={[s.toastText, { flex: 1 }]}>{toast.msg}</Text>
+          {toast.action && (
+            <TouchableOpacity
+              style={s.toastBtn}
+              onPress={async () => {
+                const fn = toast.action.fn;
+                setToast(null);
+                try { await fn(); } catch (e) { showToast(e.message, true); }
+              }}
+            >
+              <Text style={s.toastBtnText}>{toast.action.label}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -218,8 +248,10 @@ const s = StyleSheet.create({
   toast: {
     position: "absolute", bottom: 74, left: 20, right: 20, zIndex: 10,
     backgroundColor: C.surface2, borderColor: C.border, borderWidth: 1,
-    borderRadius: 12, padding: 13, alignItems: "center",
+    borderRadius: 12, padding: 13, flexDirection: "row", alignItems: "center", gap: 10,
   },
   toastError: { borderColor: C.danger },
   toastText: { color: C.text, fontSize: 13.5 },
+  toastBtn: { backgroundColor: "rgba(127,180,232,0.18)", borderRadius: 8, paddingVertical: 5, paddingHorizontal: 11 },
+  toastBtnText: { color: C.brand, fontSize: 13, fontWeight: "800" },
 });

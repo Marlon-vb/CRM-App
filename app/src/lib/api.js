@@ -155,6 +155,12 @@ export const api = {
     const r = await apiFetch(`/api/todos/${id}`, { method: "DELETE" });
     if (!r.ok && r.status !== 204) throw new Error(`DELETE /api/todos/${id} → ${r.status}`);
   },
+  async restoreTodo(id) {
+    const r = await apiFetch(`/api/todos/${id}/restore`, { method: "POST" });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `restore → ${r.status}`);
+    return data;
+  },
   async reorderTodos(order) {
     const r = await apiFetch("/api/todos/reorder", {
       method: "POST",
@@ -217,6 +223,12 @@ export const api = {
     });
     const data = await r.json().catch(() => null);
     if (!r.ok) throw new Error(data?.error || `followups snooze → ${r.status}`);
+    return data;
+  },
+  async listSnoozes() {
+    const r = await apiFetch("/api/followups/snoozes");
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `GET snoozes → ${r.status}`);
     return data;
   },
   async followupsUnsnooze(itemKey) {

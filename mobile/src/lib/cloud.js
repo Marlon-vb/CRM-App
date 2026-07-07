@@ -222,6 +222,17 @@ export async function upsertSnooze(itemKey, mode, until, lastInboundAt) {
   });
 }
 
+// Phone-side unsnooze: the cleared tombstone tells the Mac to drop the
+// snooze on its next pull. Powers the Undo button on snooze/handled toasts.
+export async function clearSnooze(itemKey) {
+  const session = await getSession();
+  await rest("cadence_snoozes?on_conflict=user_id,item_key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: { user_id: session.userId, item_key: itemKey, cleared: true },
+  });
+}
+
 export async function resolvePromise(localId, status) {
   const session = await getSession();
   await rest(

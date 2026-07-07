@@ -114,6 +114,8 @@ const QueueViewInner = ({
   const [clearedCount, setClearedCount] = useState(0);
   const [suggestions, setSuggestions] = useState([]);  // pending new-conversation suggestions
   const [suggestionBusy, setSuggestionBusy] = useState(null); // id in flight
+  const [snoozed, setSnoozed] = useState([]);           // parked items (drawer)
+  const [snoozedOpen, setSnoozedOpen] = useState(false);
   // The armed-but-not-yet-fired send. Everything needed to fire it lives here
   // so flush paths (unmount, arming a send elsewhere) don't depend on
   // component state that may already have moved on.
@@ -157,8 +159,18 @@ const QueueViewInner = ({
     }
   }, []);
 
+  /* ── snoozed drawer (audit C7): parked items stop being invisible ── */
+  const refetchSnoozed = useCallback(async () => {
+    try {
+      setSnoozed(await api.listSnoozes());
+    } catch {
+      /* non-blocking */
+    }
+  }, []);
+
   useEffect(() => { refetch(); }, [refetch, sweepStamp]);
   useEffect(() => { refetchSuggestions(); }, [refetchSuggestions, sweepStamp]);
+  useEffect(() => { refetchSnoozed(); }, [refetchSnoozed, sweepStamp]);
 
   /* ── on-demand draft generation (explicit button, not automatic — an
         LLM call per card-view was wasteful and made cards feel slow) ── */
@@ -282,7 +294,11 @@ const QueueViewInner = ({
     setSendState({ phase: "confirming", key: item.key });
   }, [current, sendState, cancelPendingSend, firePendingSend]);
 
-  /* ── done / handled without sending ── */
+  /* ── done / handled without sending ──
+     Honest semantics (audit M8/U3): "handled" is a snooze until tomorrow
+     09:00 and the toast says so; bundled TODOS complete (handled implies
+     done-by-other-means) but promises are NOT auto-marked kept — that only
+     happens on an actual send. Everything is undoable from the toast. */
   const handleDone = useCallback(async () => {
     if (!current) return;
     const item = current;
@@ -293,38 +309,77 @@ const QueueViewInner = ({
       if (item.kind === "todo") {
         await api.updateTodo(item.todoId, { completed: true });
         onTodosChanged?.();
-        showToast?.("Todo completed");
+        showToast?.("Todo completed", {
+          label: "Undo",
+          fn: async () => {
+            await api.updateTodo(item.todoId, { completed: false });
+            onTodosChanged?.();
+            refetch();
+          },
+        });
       } else {
         // Mark handled = park until tomorrow morning so it doesn't re-surface today.
         await api.followupsSnooze(item.key, "until", snoozeUntil("tomorrow"));
-        await clearBundle(item);
-        showToast?.("Marked handled");
+        const completedTodoIds = [];
+        for (const b of item.bundle || []) {
+          if (b.type !== "todo") continue;
+          try {
+            await api.updateTodo(b.id, { completed: true });
+            completedTodoIds.push(b.id);
+          } catch (e) { /* best-effort */ }
+        }
+        if (completedTodoIds.length) onTodosChanged?.();
+        const extra = completedTodoIds.length
+          ? ` (+${completedTodoIds.length} todo${completedTodoIds.length === 1 ? "" : "s"} completed)`
+          : "";
+        showToast?.(`Handled — back tomorrow 9:00 if still owed${extra}`, {
+          label: "Undo",
+          fn: async () => {
+            await api.followupsUnsnooze(item.key);
+            for (const id of completedTodoIds) {
+              await api.updateTodo(id, { completed: false }).catch(() => {});
+            }
+            onTodosChanged?.();
+            refetch();
+            refetchSnoozed();
+          },
+        });
+        refetchSnoozed();
       }
       advance(item.key);
     } catch (err) {
       showErrorToast?.(`Failed — ${err.message}`);
     }
-  }, [current, advance, clearBundle, cancelPendingSend, onTodosChanged, showToast, showErrorToast]);
+  }, [current, advance, refetch, refetchSnoozed, cancelPendingSend, onTodosChanged, showToast, showErrorToast]);
 
   const handleSnooze = useCallback(async (option) => {
     if (!current) return;
     const item = current;
     setSnoozeOpen(false);
     if (pendingSend.current?.itemKey === item.key) cancelPendingSend(true);
+    const undo = {
+      label: "Undo",
+      fn: async () => {
+        await api.followupsUnsnooze(item.key);
+        refetch();
+        refetchSnoozed();
+      },
+    };
     try {
       if (option === "after_reply") {
         const lastInbound = item.lastInbound?.date || item.lastActivity || null;
         await api.followupsSnooze(item.key, "after_reply", null, lastInbound);
-        showToast?.("Snoozed until they reply");
+        showToast?.("Snoozed until they reply", undo);
       } else {
         await api.followupsSnooze(item.key, "until", snoozeUntil(option));
-        showToast?.("Snoozed");
+        showToast?.("Snoozed", undo);
       }
+      refetchSnoozed();
       advance(item.key);
     } catch (err) {
       showErrorToast?.(`Snooze failed — ${err.message}`);
     }
-  }, [current, advance, cancelPendingSend, showToast, showErrorToast]);
+  }, [current, advance, refetch, refetchSnoozed, cancelPendingSend, showToast, showErrorToast]);
 
   // Skip / rail navigation deliberately do NOT touch a pending send — the
   // user confirmed it, and send state is keyed to its own card, so moving
@@ -605,6 +660,54 @@ const QueueViewInner = ({
                     Dismiss
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── SNOOZED DRAWER — parked items, visible and reversible ── */}
+        {snoozed.length > 0 && (
+          <div style={{ marginTop: "var(--space-4)", paddingTop: "var(--space-3)", borderTop: "1px solid var(--border-subtle)" }}>
+            <button
+              onClick={() => setSnoozedOpen((o) => !o)}
+              style={{
+                display: "flex", alignItems: "center", gap: "var(--space-1-5)", width: "100%",
+                padding: "var(--space-1) var(--space-2)", background: "none", border: "none", cursor: "pointer",
+              }}
+            >
+              <Clock size={11} style={{ color: "var(--text-faint)" }} />
+              <span style={{ fontFamily: MONO, fontSize: "var(--font-2xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.13em", color: "var(--text-faint)" }}>
+                Snoozed
+              </span>
+              <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>
+                {snoozed.length} {snoozedOpen ? "▾" : "▸"}
+              </span>
+            </button>
+            {snoozedOpen && snoozed.map((s) => (
+              <div key={s.itemKey} style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", padding: "var(--space-1-5) var(--space-2)", borderRadius: "var(--radius-md)" }}>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: "block", fontSize: "var(--font-sm)", color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {s.label}
+                  </span>
+                  <span style={{ display: "block", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>
+                    {s.mode === "after_reply" ? "until they reply" : s.until ? `until ${new Date(s.until).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : s.mode}
+                  </span>
+                </span>
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.followupsUnsnooze(s.itemKey);
+                      refetchSnoozed();
+                      refetch();
+                      showToast?.("Unsnoozed — back in the queue");
+                    } catch (err) {
+                      showErrorToast?.(`Unsnooze failed — ${err.message}`);
+                    }
+                  }}
+                  style={{ fontSize: "var(--font-xs)", fontWeight: 600, color: "var(--brand)", background: "var(--brand-tint-2)", border: "1px solid var(--brand-border)", borderRadius: "var(--radius-md)", padding: "2px var(--space-2)", cursor: "pointer", flexShrink: 0 }}
+                >
+                  Wake
+                </button>
               </div>
             ))}
           </div>
