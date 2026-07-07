@@ -93,6 +93,7 @@ class QueueErrorBoundary extends Component {
 }
 
 const QueueViewInner = ({
+  compact = false,    // slim-column shell: single column, list ⇄ detail
   sweepStamp,         // App bumps this after each sweep lands → refetch
   onQueueChanged,     // notify App so the sidebar badge stays fresh
   onTodosChanged,     // refresh App's todos state after bundle completion
@@ -125,6 +126,16 @@ const QueueViewInner = ({
 
   const items = queue?.items || [];
   const current = items.find((i) => i.key === currentKey) || items[0] || null;
+
+  // Compact (slim-column) mode shows ONE of list/detail at a time: tapping a
+  // rail item opens the stage; ← returns. Cleared-out queues fall back to
+  // the list so the suggestions + snoozed drawer stay reachable.
+  const [compactStage, setCompactStage] = useState(false);
+  useEffect(() => {
+    if (!loading && items.length === 0) setCompactStage(false);
+  }, [loading, items.length]);
+  const showRail = !compact || !compactStage;
+  const showStage = !compact || compactStage || items.length === 0;
 
   /* ── fetch the queue (backend-owned cache — GET, no payload) ──
      A failed fetch must NEVER paint the celebratory zero state — the
@@ -540,9 +551,10 @@ const QueueViewInner = ({
         </div>
       )}
 
-      <div style={{ display: "flex", gap: "var(--space-4)", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: compact ? "column" : "row", gap: "var(--space-4)", alignItems: compact ? "stretch" : "flex-start" }}>
       {/* ── RAIL ── */}
-      <aside style={{ width: 280, flexShrink: 0 }}>
+      {showRail && (
+      <aside style={compact ? { width: "100%" } : { width: 280, flexShrink: 0 }}>
         {/* ── NEW CONVERSATIONS — pending suggestions from the sweep.
             Deliberately ABOVE the queue groups (audit U9): a new client
             appearing is the growth moment, and buried under a 38-item rail
@@ -621,11 +633,11 @@ const QueueViewInner = ({
                 <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: "var(--font-2xs)", color: "var(--text-faint)" }}>{list.length}</span>
               </div>
               {list.map((it) => {
-                const isCurrent = current && it.key === current.key;
+                const isCurrent = !compact && current && it.key === current.key;
                 return (
                   <button
                     key={it.key}
-                    onClick={() => { setCurrentKey(it.key); setSnoozeOpen(false); }}
+                    onClick={() => { setCurrentKey(it.key); setSnoozeOpen(false); if (compact) setCompactStage(true); }}
                     className="pw-qitem"
                     style={{
                       display: "flex", alignItems: "flex-start", gap: "var(--space-2)", width: "100%",
@@ -716,9 +728,25 @@ const QueueViewInner = ({
           </div>
         )}
       </aside>
+      )}
 
       {/* ── STAGE ── */}
-      <div style={{ flex: 1, maxWidth: 660, minWidth: 0 }}>
+      {showStage && (
+      <div style={compact ? { width: "100%", minWidth: 0 } : { flex: 1, maxWidth: 660, minWidth: 0 }}>
+        {compact && compactStage && (
+          <button
+            onClick={() => setCompactStage(false)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: "var(--space-1)",
+              fontSize: "var(--font-sm)", fontWeight: 600, color: "var(--text-secondary)",
+              background: "var(--surface-2)", border: "1px solid var(--border)",
+              borderRadius: "var(--radius-md)", padding: "var(--space-1) var(--space-2-5)",
+              cursor: "pointer", marginBottom: "var(--space-3)",
+            }}
+          >
+            ← Queue{items.length > 0 ? ` (${items.length})` : ""}
+          </button>
+        )}
         {!current ? (
           // The celebration REQUIRES a successful fetch — an errored fetch
           // renders the error card above and nothing here.
@@ -950,6 +978,7 @@ const QueueViewInner = ({
           </div>
         )}
       </div>
+      )}
       </div>
     </div>
   );

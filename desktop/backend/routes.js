@@ -181,6 +181,13 @@ app.post("/api/cloud/config", wrap(async (req, res) => {
   res.json(await cloud.setConfig(url, anonKey));
 }));
 
+// The iPhone-setup QR payload (audit U4): project URL + anon key, both
+// public-by-design. Token-authed like every /api route; the phone still
+// signs in with email/password after scanning.
+app.get("/api/cloud/handoff", wrap((req, res) => {
+  res.json(cloud.handoff());
+}));
+
 app.post("/api/cloud/signin", wrap(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) throw new HttpError(400, "email and password are required");
@@ -672,6 +679,7 @@ function printEndpointList() {
     ["GET", "/api/health", "health check"],
     ["GET", "/api/cloud/status", "cloud publish status (signed in / last sync)"],
     ["POST", "/api/cloud/config", "point at a different Supabase project"],
+    ["GET", "/api/cloud/handoff", "iPhone-setup QR payload (url + anon key)"],
     ["POST", "/api/cloud/signin", "sign in to Cadence Cloud"],
     ["POST", "/api/cloud/signup", "create a Cadence Cloud account"],
     ["POST", "/api/cloud/signout", "sign out (stops publishing)"],

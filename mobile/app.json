@@ -20,7 +20,8 @@
         "LSApplicationQueriesSchemes": [
           "tg",
           "telegram"
-        ]
+        ],
+        "NSCameraUsageDescription": "Cadence scans the setup code shown in the Mac app's Settings."
       }
     },
     "android": {

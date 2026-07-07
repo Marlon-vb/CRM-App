@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import QRCode from "qrcode";
 import { api } from "../lib/api";
 import { timeAgo } from "../lib/utils";
 
@@ -344,6 +345,24 @@ function CloudSection({ showToast }) {
   const [showProject, setShowProject] = useState(false);
   const [projUrl, setProjUrl] = useState("");
   const [projKey, setProjKey] = useState("");
+  // iPhone-setup QR (audit U4): project URL + anon key as a scannable code
+  // so the phone never types the ~200-char key. Generated on demand.
+  const [qrDataUrl, setQrDataUrl] = useState(null);
+
+  const toggleQr = async () => {
+    if (qrDataUrl) { setQrDataUrl(null); return; }
+    setError("");
+    try {
+      const payload = await api.cloudHandoff();
+      // Black-on-white regardless of theme — scanners want the contrast.
+      setQrDataUrl(await QRCode.toDataURL(JSON.stringify(payload), {
+        width: 220, margin: 1, errorCorrectionLevel: "M",
+        color: { dark: "#000000ff", light: "#ffffffff" },
+      }));
+    } catch (e) {
+      setError(`Couldn't build the setup code — ${e.message}`);
+    }
+  };
 
   const reload = async () => {
     try { setCloud(await api.cloudStatus()); } catch (e) { setError(e.message); }
@@ -472,7 +491,27 @@ function CloudSection({ showToast }) {
           onClick={() => run(() => api.cloudSignOut(), "Signed out")}>
           Sign out
         </button>
+        <button className={ghostBtn} style={ghostStyle} disabled={busy} onClick={toggleQr}>
+          {qrDataUrl ? "Hide setup code" : "Set up iPhone"}
+        </button>
       </div>
+      {qrDataUrl && (
+        <div className="flex items-start" style={{ gap: "var(--space-3)", paddingTop: "var(--space-2)", flexWrap: "wrap" }}>
+          <img
+            src={qrDataUrl}
+            alt="Cadence iPhone setup code"
+            width={150} height={150}
+            style={{ borderRadius: "var(--radius-lg)", background: "#fff", padding: 6, flexShrink: 0 }}
+          />
+          <div style={{ ...hintStyle, flex: 1, minWidth: 180 }}>
+            On the iPhone, open the Cadence app (Expo Go for now) and tap
+            <strong> Scan setup code</strong> on the first screen — it fills
+            in the project for you. Then sign in with the same email and
+            password as here. The code carries only the project address and
+            its public key, never your password or session.
+          </div>
+        </div>
+      )}
       {error && <p style={{ fontSize: "var(--font-sm)", color: "var(--danger-soft)" }}>{error}</p>}
     </div>
   );

@@ -369,6 +369,12 @@ export const api = {
     if (!r.ok) throw new Error(data?.error || `cloud config → ${r.status}`);
     return data;
   },
+  async cloudHandoff() {
+    const r = await apiFetch("/api/cloud/handoff");
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `handoff → ${r.status}`);
+    return data;
+  },
   async cloudSignIn(email, password) {
     const r = await apiFetch("/api/cloud/signin", {
       method: "POST",

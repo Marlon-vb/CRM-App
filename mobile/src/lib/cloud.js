@@ -39,8 +39,11 @@ export async function getConfig() {
 
 export async function setConfig(url, anonKey) {
   const clean = String(url || "").trim().replace(/\/+$/, "");
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(clean)) {
-    throw new Error("That doesn't look like a Supabase project URL (https://<ref>.supabase.co).");
+  // Any https origin, not just *.supabase.co — self-hosted Supabase lives
+  // anywhere (the audit's U4). The /auth/v1/health probe below is what
+  // actually proves it's a Supabase; this only rejects http:// and garbage.
+  if (!/^https:\/\/[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?$/i.test(clean)) {
+    throw new Error("Enter the project's https:// URL (e.g. https://<ref>.supabase.co).");
   }
   const key = String(anonKey || "").trim();
   if (!key) throw new Error("The anon key is required (Supabase → Settings → API).");

@@ -37,6 +37,8 @@ const backend = require("./backend/server");
 const auth = require("./backend/auth");
 const notifier = require("./backend/notifier");
 const settings = require("./backend/settings");
+const { DATA_DIR } = require("./backend/config");
+const fs = require("fs");
 
 // Defaults to the Node backend's own origin; override with CADENCE_URL=…
 // to point at a Vite dev server during frontend work.
@@ -44,12 +46,44 @@ const CADENCE_URL = process.env.CADENCE_URL || "http://localhost:3456";
 
 let mainWindow = null;
 
+// ── window bounds persistence ──
+// Cadence lives as a slim todo-list column (~quarter of a laptop screen),
+// but whatever size the user drags it to should stick across launches.
+const _BOUNDS_FILE = path.join(DATA_DIR, "window-state.json");
+
+function _loadBounds() {
+  try {
+    const b = JSON.parse(fs.readFileSync(_BOUNDS_FILE, "utf8"));
+    if (Number.isFinite(b.width) && Number.isFinite(b.height)) return b;
+  } catch { /* first launch / unreadable — use defaults */ }
+  return null;
+}
+
+let _boundsTimer = null;
+function _saveBoundsSoon() {
+  clearTimeout(_boundsTimer);
+  _boundsTimer = setTimeout(() => {
+    if (!mainWindow) return;
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(_BOUNDS_FILE, JSON.stringify(mainWindow.getBounds()));
+    } catch { /* best-effort */ }
+  }, 500);
+}
+
 function createWindow() {
+  const saved = _loadBounds();
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 680,
+    // Default: a narrow, tall column — a todo list, not a dashboard. The
+    // frontend shell collapses to its compact layout below 860px, so the
+    // default lands well inside compact mode. Drag it wider and the full
+    // rail + detail layout comes back (and the size persists).
+    width: saved?.width ?? 480,
+    height: saved?.height ?? 940,
+    x: saved?.x,
+    y: saved?.y,
+    minWidth: 380,
+    minHeight: 560,
     title: "Cadence",
     show: false, // revealed on ready-to-show to avoid a blank flash
     // Hide the native title bar but keep the macOS traffic-light buttons
@@ -110,6 +144,9 @@ function createWindow() {
     }
     if (origin !== appOrigin) event.preventDefault();
   });
+
+  mainWindow.on("resize", _saveBoundsSoon);
+  mainWindow.on("move", _saveBoundsSoon);
 
   mainWindow.on("closed", () => {
     mainWindow = null;

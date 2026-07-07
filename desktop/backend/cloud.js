@@ -186,8 +186,10 @@ function userId() {
 async function testConfig(url, anonKey) {
   const clean = String(url || "").trim().replace(/\/+$/, "");
   const key = String(anonKey || "").trim();
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(clean)) {
-    throw _svc(400, "That doesn't look like a Supabase project URL (https://<ref>.supabase.co).");
+  // Any well-formed https origin — hosted Supabase AND self-hosted (audit
+  // U4's second half). The /auth/v1/health probe below is the real proof.
+  if (!/^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(clean)) {
+    throw _svc(400, "That doesn't look like a Supabase URL (https://<host>, no path).");
   }
   if (!key) throw _svc(400, "The anon key is required (Supabase → Settings → API).");
   let r;
@@ -218,6 +220,17 @@ async function setConfig(url, anonKey) {
   return status();
 }
 
+/* The iPhone-setup handoff payload (audit U4): the Mac renders this as a
+   QR code so the phone never types the ~200-char anon key. Contains only
+   the project URL + anon key — both public-by-design (the anon key ships
+   in every Supabase client app; RLS is the actual boundary). The user
+   still signs in with email/password on the phone. */
+function handoff() {
+  const { url, anonKey } = _config();
+  if (!url || !anonKey) throw _svc(503, "Cloud sync isn't configured.");
+  return { cadence: 1, url, anonKey };
+}
+
 function status() {
   const { url } = _config();
   return {
@@ -243,5 +256,6 @@ module.exports = {
   userId,
   testConfig,
   setConfig,
+  handoff,
   status,
 };

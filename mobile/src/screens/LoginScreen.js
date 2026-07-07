@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
   Platform, ScrollView, StyleSheet,
 } from "react-native";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as cloud from "../lib/cloud";
+import * as haptics from "../lib/haptics";
 import { C } from "../theme";
 
 /* First-run: project (URL + anon key, persisted once) then account.
@@ -17,11 +19,67 @@ export default function LoginScreen({ initialConfig, onSignedIn }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [camDenied, setCamDenied] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const scannedRef = useRef(false); // latch — the scanner fires every frame a code is visible
 
   const run = async (fn) => {
     setBusy(true); setError(""); setNotice("");
     try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
+
+  const saveProject = (u, k) => run(async () => {
+    await cloud.setConfig(u, k);
+    setHasConfig(true);
+  });
+
+  const openScanner = async () => {
+    setCamDenied(false);
+    let p = permission;
+    if (!p || !p.granted) p = await requestPermission();
+    if (!p || !p.granted) { setCamDenied(true); return; }
+    scannedRef.current = false;
+    setScanning(true);
+  };
+
+  // The Mac's Settings QR encodes {"cadence":1,"url":...,"anonKey":...}.
+  // Anything else (a menu, a wifi code) is silently ignored — keep scanning.
+  const onScan = ({ data }) => {
+    if (scannedRef.current) return;
+    let payload;
+    try { payload = JSON.parse(data); } catch (e) { return; }
+    if (!payload || payload.cadence !== 1) return;
+    const u = String(payload.url || "").trim();
+    const k = String(payload.anonKey || "").trim();
+    if (!u.startsWith("https://") || !k) return;
+    scannedRef.current = true;
+    setUrl(u); setAnonKey(k);
+    setScanning(false);
+    haptics.success();
+    saveProject(u, k); // same path as the manual button — on failure the fields stay prefilled
+  };
+
+  if (scanning) {
+    return (
+      <View style={s.scanWrap}>
+        <CameraView
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          onBarcodeScanned={onScan}
+        />
+        <View style={s.scanOverlay} pointerEvents="box-none">
+          <Text style={s.scanHint}>
+            Point at the QR code in the Mac app{"\n"}Settings → Cadence Cloud
+          </Text>
+          <TouchableOpacity style={s.scanCancel} onPress={() => setScanning(false)}>
+            <Text style={s.scanCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -39,6 +97,22 @@ export default function LoginScreen({ initialConfig, onSignedIn }) {
         {!hasConfig ? (
           <>
             <Text style={s.label}>SUPABASE PROJECT</Text>
+            <TouchableOpacity
+              style={[s.primary, busy && s.disabled]} disabled={busy}
+              onPress={openScanner}
+            >
+              <Text style={s.primaryText}>Scan setup code</Text>
+            </TouchableOpacity>
+            {camDenied ? (
+              <Text style={s.error}>
+                Camera access denied — enter the values manually or enable it
+                in iOS Settings.
+              </Text>
+            ) : null}
+            <Text style={[s.hint, { marginBottom: 12 }]}>
+              The Mac shows the code in Settings → Cadence Cloud. Or type the
+              values from Supabase → Settings → API:
+            </Text>
             <TextInput
               style={s.input} value={url} onChangeText={setUrl}
               placeholder="https://<ref>.supabase.co" placeholderTextColor={C.textFaint}
@@ -52,17 +126,11 @@ export default function LoginScreen({ initialConfig, onSignedIn }) {
             <TouchableOpacity
               style={[s.primary, (!url || !anonKey || busy) && s.disabled]}
               disabled={!url || !anonKey || busy}
-              onPress={() => run(async () => {
-                await cloud.setConfig(url, anonKey);
-                setHasConfig(true);
-              })}
+              onPress={() => saveProject(url, anonKey)}
             >
               <Text style={s.primaryText}>{busy ? "Checking…" : "Save project"}</Text>
             </TouchableOpacity>
-            <Text style={s.hint}>
-              Same values as the Mac: Supabase → Settings → API. Checked live
-              before saving.
-            </Text>
+            <Text style={s.hint}>Checked live before saving.</Text>
           </>
         ) : (
           <>
@@ -130,4 +198,18 @@ const s = StyleSheet.create({
   hint: { color: C.textFaint, fontSize: 12, lineHeight: 17, marginTop: 10 },
   notice: { color: C.textSecondary, fontSize: 13, marginTop: 12 },
   error: { color: C.danger, fontSize: 13, marginTop: 12 },
+  scanWrap: { flex: 1, backgroundColor: "#000" },
+  scanOverlay: {
+    ...StyleSheet.absoluteFillObject, justifyContent: "space-between",
+    alignItems: "center", paddingTop: 84, paddingBottom: 56,
+  },
+  scanHint: {
+    color: "#fff", fontSize: 15, lineHeight: 22, textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.8)", textShadowRadius: 6,
+  },
+  scanCancel: {
+    backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 22,
+    paddingHorizontal: 28, paddingVertical: 12,
+  },
+  scanCancelText: { color: "#fff", fontSize: 15, fontWeight: "600" },
 });

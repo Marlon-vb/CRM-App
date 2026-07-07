@@ -183,6 +183,17 @@ tab state, sweep polling, toasts, setup gate. Don't grow it into PipeWise's
 set `touch-action: none` (fine desktop-first; move to a drag handle when
 touch matters — known PipeWise trap).
 
+**The window is a slim todo-list column by default.** main.js opens at
+480×940 (min 380×560) and persists bounds to `<DATA_DIR>/window-state.json`.
+Below `COMPACT_BP` (860px, App.jsx `useCompact`) the shell swaps the sidebar
+for a top icon bar and QueueView goes single-column: the rail is the whole
+view, tapping an item shows the stage with a "← Queue" button
+(`compactStage` state; cleared queues auto-return to the list so
+suggestions + the snoozed drawer stay reachable). New surfaces must stay
+usable at 380px — test with the `compact` render-smoke mode. Dragging past
+the breakpoint restores the full two-pane layout; both modes share ALL
+state, so nothing may exist in only one of them.
+
 **LLM prompts are profile-aware.** `drafting.js`, `todos.js`, `followups.js`
 substitute `settings.getUserProfile()` into every prompt. Hardcoding a
 persona is a regression. Model id comes from `config.HAIKU_MODEL` — don't

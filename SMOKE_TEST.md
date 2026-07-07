@@ -121,8 +121,10 @@ alive. Relaunch — the first sweep binds the chats. Re-running without
 1. iPhone: install **Expo Go** from the App Store. Mac:
    `cd mobile && npm install && npx expo start` → scan the QR with the
    camera (same Wi-Fi; `--tunnel` if blocked). ☑
-2. First launch: paste the Supabase project URL + anon key (same as the
-   Mac), then sign in with the same email/password. ☑
+2. First launch: tap **Scan setup code** and point the camera at the QR in
+   Mac Settings → Cadence Cloud → **Set up iPhone** — the project fills in
+   itself (fallback: paste the URL + anon key manually). Then sign in with
+   the same email/password. ☑
 3. Queue mirrors the Mac's; pull-to-refresh works; **Open in Telegram**
    lands in the right chat (supergroups precise, DMs best-effort). ☑
 4. Snooze a card on the phone → within ~5 min the Mac's sync applies it
@@ -147,6 +149,11 @@ alive. Relaunch — the first sweep binds the chats. Re-running without
 5. iPhone: actions buzz (success on Handled/Snooze/complete, light tap on
    expand/star), faint text is readable, high-priority todos show a "!" in
    the check circle, VoiceOver reads every button meaningfully. ☑
+6. Slim window: the app opens as a narrow column (~480px). The sidebar is
+   a top icon bar; the Queue is a single-column list — tapping an item
+   opens the card with a "← Queue" button back. Drag the window wider than
+   ~860px and the full sidebar + two-pane layout returns; the size sticks
+   across relaunches. ☑
 
 ## I — If something fails
 

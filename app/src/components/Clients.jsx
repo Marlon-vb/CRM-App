@@ -249,6 +249,8 @@ const ClientRow = ({
       className="flex items-center"
       style={{
         gap: "var(--space-3)",
+        rowGap: "var(--space-2)",
+        flexWrap: "wrap", // slim-column window: controls wrap under the name
         padding: "var(--space-2-5) var(--space-3)",
         borderRadius: "var(--radius-lg)",
         border: "1px solid",

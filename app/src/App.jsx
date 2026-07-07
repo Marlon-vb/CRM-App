@@ -50,6 +50,22 @@ const PROGRESS_POLL_MS = 400;
 // with no frontend event — cheap (two local GETs) at once a minute.
 const SWEEP_WATCH_MS = 60 * 1000;
 
+// ── Compact shell ──
+// Cadence's default window is a slim todo-list column (main.js opens at
+// 480px). Below this breakpoint the left sidebar becomes a top icon bar
+// and the Queue goes single-column (list ⇄ detail). 860 = sidebar (220) +
+// rail (280) + the narrowest usable detail pane.
+const COMPACT_BP = 860;
+function useCompact() {
+  const [compact, setCompact] = useState(() => window.innerWidth < COMPACT_BP);
+  useEffect(() => {
+    const onResize = () => setCompact(window.innerWidth < COMPACT_BP);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return compact;
+}
+
 // Derive the active tab from the URL pathname. "/" → queue.
 function _tabFromPath(pathname) {
   const seg = (pathname || "/").split("/").filter(Boolean)[0] || "";
@@ -62,6 +78,7 @@ export default function Cadence() {
   // deep-links work and the browser back button does the right thing.
   const location = useLocation();
   const navigate = useNavigate();
+  const compact = useCompact();
   const tab = _tabFromPath(location.pathname);
   const setTab = useCallback((key) => {
     if (ROUTE_TABS.has(key)) navigate(`/${key}`);
@@ -399,13 +416,93 @@ export default function Cadence() {
         }}
       />
       <div
-        className="w-full flex overflow-hidden"
+        className={`w-full flex overflow-hidden${compact ? " flex-col" : ""}`}
         style={{ height: "100vh", background: "transparent" }}
       >
+
+        {/* Compact top bar — the slim-column shell. Sits below the 28px drag
+            strip (which also clears the traffic lights), full width: wordmark,
+            icon tabs with badges, profile chip, theme toggle. */}
+        {compact && (
+          <div
+            className="flex items-center"
+            style={{
+              flexShrink: 0,
+              gap: "var(--space-1)",
+              padding: "var(--space-7) var(--space-2-5) var(--space-1-5)",
+              background: "var(--sidebar-bg)",
+              backdropFilter: "blur(24px) saturate(140%)",
+              WebkitBackdropFilter: "blur(24px) saturate(140%)",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <div
+              aria-hidden="true"
+              style={{
+                width: 20, height: 20, borderRadius: "var(--radius-md)",
+                background: "linear-gradient(135deg, var(--brand), var(--brand-soft))",
+                color: "var(--brand-fg)", display: "grid", placeItems: "center",
+                fontSize: "var(--font-sm)", fontWeight: 700, flexShrink: 0,
+                marginRight: "var(--space-1-5)",
+              }}
+            >
+              C
+            </div>
+            {NAV.map(item => {
+              const Icon = item.icon;
+              const active = tab === item.key;
+              const badgeCount = !item.dynamicBadge ? 0
+                : item.key === "queue" ? (fuSummary?.queueSize || 0)
+                : item.key === "todos" ? todoBadgeCount : 0;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  title={item.label}
+                  aria-label={badgeCount > 0 ? `${item.label} (${badgeCount})` : item.label}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: "var(--space-1)",
+                    padding: "var(--space-1-5) var(--space-2)",
+                    borderRadius: "var(--radius-md)", border: "none",
+                    background: active ? "var(--surface-2)" : "transparent",
+                    color: active ? "var(--text)" : "var(--text-secondary)",
+                    boxShadow: active ? "inset 0 0 0 1px var(--border-strong)" : "none",
+                    cursor: "pointer", fontSize: "var(--font-sm)", fontWeight: 600,
+                  }}
+                >
+                  <Icon size={14} style={{ opacity: 0.85 }} />
+                  {badgeCount > 0 && (
+                    <span style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace", fontSize: "var(--font-xs)", color: active ? "var(--text-faint)" : "inherit" }}>
+                      {badgeCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--space-1-5)" }}>
+              <div
+                onClick={openSettings}
+                title={userProfile.userName?.trim() ? `${userProfile.userName} — open Settings` : "Open Settings"}
+                style={{
+                  width: 24, height: 24, borderRadius: "var(--radius-md)",
+                  background: "var(--brand-tint-2)", color: "var(--brand-soft)",
+                  display: "grid", placeItems: "center",
+                  fontSize: "var(--font-xs)", fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                {userProfile.userName?.trim()
+                  ? userProfile.userName.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(s => s[0].toUpperCase()).join("")
+                  : "·"}
+              </div>
+              <ThemeToggle />
+            </div>
+          </div>
+        )}
 
         {/* Sidebar — glassy chrome that lets the bg gradient bleed through.
             Top padding clears the macOS traffic-light cluster now that the
             native title bar is hidden (main.js titleBarStyle: 'hiddenInset'). */}
+        {!compact && (
         <div
           className="flex flex-col"
           style={{
@@ -570,6 +667,7 @@ export default function Cadence() {
             <ThemeToggle />
           </div>
         </div>
+        )}
 
         {/* Main */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -623,7 +721,7 @@ export default function Cadence() {
           })()}
 
           {/* Content */}
-          <div className="flex-1 overflow-auto p-6">
+          <div className={`flex-1 overflow-auto ${compact ? "p-3" : "p-6"}`}>
             {backendStatus === "offline" && (
               <div className="h-full flex items-center justify-center">
                 <div
@@ -663,6 +761,7 @@ export default function Cadence() {
                 <SetupBanner require="telegram" onOpenSettings={openSettings} />
                 <SetupBanner require="anthropic" onOpenSettings={openSettings} />
                 <QueueView
+                  compact={compact}
                   sweepStamp={sweepStamp}
                   suggestions={suggestions}
                   onSuggestionsChanged={handleSuggestionsChanged}
