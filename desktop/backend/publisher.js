@@ -93,7 +93,11 @@ async function _pull(uid) {
   }
 
   // Snoozes: phone snoozes/unsnoozes queue items. cleared=true is the
-  // unsnooze tombstone.
+  // unsnooze tombstone. Rows identical to local state are SKIPPED — our
+  // own pushes touch updated_at, and blindly re-applying them every cycle
+  // is what used to churn snooze rows (and, before set_snooze preserved
+  // created_at, silently disabled the after-reply failsafe — audit M1/M8).
+  const localSnoozes = db.list_fu_snoozes();
   const snoozes = await cloud.rest(
     `cadence_snoozes?user_id=eq.${uid}&updated_at=gt.${encodeURIComponent(cursor)}` +
       `&select=item_key,mode,until,last_inbound_at,cleared,updated_at`
@@ -101,8 +105,17 @@ async function _pull(uid) {
   for (const row of snoozes || []) {
     bump(row.updated_at);
     try {
-      if (row.cleared) db.clear_fu_snooze(row.item_key);
-      else db.set_fu_snooze(row.item_key, row.mode || "until", row.until, row.last_inbound_at);
+      const local = localSnoozes[row.item_key];
+      if (row.cleared) {
+        if (local) db.clear_fu_snooze(row.item_key);
+      } else if (
+        !local ||
+        local.mode !== (row.mode || "until") ||
+        (local.until ?? null) !== (row.until ?? null) ||
+        (local.lastInboundAt ?? null) !== (row.last_inbound_at ?? null)
+      ) {
+        db.set_fu_snooze(row.item_key, row.mode || "until", row.until, row.last_inbound_at);
+      }
     } catch (e) {
       console.log(`[cloud] snooze apply failed ${row.item_key}: ${e.message}`);
     }
@@ -194,6 +207,13 @@ async function _push(uid) {
     status: p.status,
     resolved_at: p.resolvedAt,
   })));
+
+  // ── clobber-window guard (audit M2) ──
+  // A phone action written between this cycle's PULL and here would be
+  // overwritten by the destructive steps below (snooze tombstoning, queue
+  // deletion). Re-pull right before them: the cursor makes it nearly free
+  // when nothing happened, and absorbs anything that raced the push.
+  await _pull(uid);
 
   // Snoozes — authoritative local set (pull already absorbed the phone's);
   // anything cloud-side not in it gets the cleared tombstone.

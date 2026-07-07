@@ -28,11 +28,22 @@ traps are the ancestral reference. PipeWise itself stays untouched.
   better-sqlite3 for the host — so you can actually boot
   `CADENCE_ALLOW_PLAINTEXT=1 node desktop/backend/server.js` and curl
   round-trips with the token it prints. Do this for any backend change.
+- **Backend test suite (run it for any engine/db/publisher change):**
+  `npm --prefix desktop test` — `node --test` over `desktop/test/*.test.js`
+  against a temp SQLite db (`test/_env.js` sets the env BEFORE any backend
+  require; keep that ordering). Covers the queue states + snooze semantics
+  (incl. the audit M1/M3/M9 regressions), promise extraction (M7 deep feed
+  + M3 fallback, Anthropic stubbed at `_anthropic_create`), and the
+  publisher cycle (M2 clobber guard, 401 death) against stubbed
+  `cloud._fetch`. On the Mac AFTER `npm run rebuild` (Electron-ABI
+  better-sqlite3), use `npm --prefix desktop run test:mac` instead —
+  plain `node` will hit NODE_MODULE_VERSION errors there.
 - **Queue engine harness:** `followups.build_queue({telegramData})` takes
   injected data — feed it a fake chats object (see the shape in
   `telegram.js` around `_lastSweep`) to exercise reply/recap/cold/promise
-  states without Telegram. GramJS itself can't run in the sandbox (no
-  session) — Telegram-touching changes need the Mac smoke test.
+  states without Telegram (this is what the test suite does). GramJS itself
+  can't run in the sandbox (no session) — Telegram-touching changes need
+  the Mac smoke test.
 - **Frontend build:** `cd app && npx vite build --outDir /tmp/cadence-build`.
 - **Frontend RENDER smoke (catches what the build can't):** TDZ errors pass
   the build and blank the screen at runtime. Load the production bundle

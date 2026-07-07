@@ -197,8 +197,15 @@ function build_queue({ telegramData = {} } = {}) {
 
   for (const relationship of relationships) {
     if (relationship.archivedAt) continue;           // archived — skip
+    // Bind by primary group name, falling back to the rel:<id> cache key —
+    // the fallback is what makes DM-only clients (no primary binding, chats
+    // attached via relationship_chats) visible to reply/cold detection at
+    // all (audit M3). The sweep writes both keys for every tracked client.
     const group = relationship.telegramChat ? relationship.telegramChat.group : null;
-    const tg = group ? telegramData[group] || null : null;
+    const tg =
+      (group ? telegramData[group] : null) ||
+      telegramData[`rel:${relationship.id}`] ||
+      null;
     summary.tracked += 1;
 
     const lastMsg = tg && tg.matched ? tg.last_message : null;
@@ -208,7 +215,12 @@ function build_queue({ telegramData = {} } = {}) {
       null;
     const lastInboundISO = lastMsg && !lastMsg.is_me ? lastMsg.date : null;
     const cadenceDays = relationship.cadenceDays ?? 14;
-    const hoursSilent = _hoursSince(lastActivityISO, now);
+    // Never-contacted clients used to be permanently "healthy" (audit M9) —
+    // a tracked client with zero recorded activity goes cold measured from
+    // when it was added, so the relaunch radar covers the whole book.
+    const neverContacted = lastActivityISO === null;
+    const silentSinceISO = lastActivityISO || relationship.createdAt || null;
+    const hoursSilent = _hoursSince(silentSinceISO, now);
     const daysSilent = hoursSilent === null ? null : hoursSilent / 24;
 
     const relTodos = todosByRelationship[relationship.id] || [];
@@ -300,7 +312,9 @@ function build_queue({ telegramData = {} } = {}) {
       if (!_snooze_active(snoozes[key], lastInboundISO, now)) {
         items.push({
           ...base, key, kind: "cold",
-          why: `${Math.round(daysSilent)}d silent — cadence is ${cadenceDays}d`,
+          why: neverContacted
+            ? `No contact recorded — added ${Math.round(daysSilent)}d ago, initiate outreach`
+            : `${Math.round(daysSilent)}d silent — cadence is ${cadenceDays}d`,
           urgency: 40 + Math.min(30, daysSilent - cadenceDays),
         });
       }
@@ -366,6 +380,16 @@ function build_queue({ telegramData = {} } = {}) {
 
 // ── promise extraction (LLM) ────────────────────────────────────────
 
+// Deep-feed knobs (audit M7): extraction used to see only the sweep
+// aggregate's ~8 newest messages of each relationship's most recent chat —
+// commitments in active groups scrolled past unseen. It now pulls real
+// history via telegram._fetch_recent_conversations: every linked chat
+// (groups AND DMs, each its own conversation), capped per chat, two weeks
+// back. The 12h throttle in server.js still bounds LLM spend.
+const _PROMISE_LOOKBACK_DAYS = 14;
+const _PROMISE_MSGS_PER_CHAT = 25;
+const _PROMISE_MAX_CHATS = 60;
+
 const _PROMISE_TOOL = {
   name: "record_promises",
   description: "Record commitments made in the conversations.",
@@ -403,29 +427,72 @@ function _build_promise_system_prompt(profile) {
   );
 }
 
-async function extract_promises(telegramData = {}) {
-  // Build compact conversation payloads from the sweep cache: only matched
-  // chats with at least one message are interesting.
-  const relationships = db.list_relationships();
+async function extract_promises(telegramData = {}, conversations = null) {
+  const relById = new Map();
+  for (const r of db.list_relationships()) {
+    if (!r.archivedAt) relById.set(r.id, r);
+  }
+
+  // Deep feed (audit M7): real per-chat history, every linked chat tagged
+  // with its relationship. Lazy require keeps the stubbed-db test harness
+  // (which injects `conversations`) from ever loading GramJS.
+  if (conversations === null) {
+    try {
+      const telegram = require("./telegram");
+      conversations = await telegram._fetch_recent_conversations(
+        _PROMISE_LOOKBACK_DAYS, _PROMISE_MSGS_PER_CHAT, _PROMISE_MAX_CHATS
+      );
+    } catch {
+      conversations = null; // Telegram unreachable — sweep-cache fallback below
+    }
+  }
+
+  // Both feeds keep messages newest-first (messages[0] = latest), matching
+  // the sweep cache convention — sourceRef/promisedAt read messages[0].
   const convos = [];
-  for (const relationship of relationships) {
-    if (relationship.archivedAt || !relationship.telegramChat) continue;
-    const tg = telegramData[relationship.telegramChat.group];
-    if (!tg || !tg.matched || !(tg.messages || []).length) continue;
-    const msgs = tg.messages.slice(0, 8).map((m) => ({
+  const pushConvo = (relationship, chatName, messages) => {
+    const msgs = (messages || []).slice(0, _PROMISE_MSGS_PER_CHAT).map((m) => ({
       is_me: Boolean(m.is_me),
       sender: m.sender || (m.is_me ? "me" : "them"),
       date: m.date || null,
       text: (m.text || "").slice(0, 400),
     }));
-    if (!msgs.some((m) => m.text.trim())) continue;
-    convos.push({ relationshipId: relationship.id, relationshipName: relationship.name, messages: msgs });
+    if (!msgs.some((m) => m.text.trim())) return;
+    convos.push({
+      relationshipId: relationship.id,
+      relationshipName: relationship.name,
+      chatName: chatName || null,
+      messages: msgs,
+    });
+  };
+
+  if (conversations && conversations.length) {
+    for (const c of conversations) {
+      if (c.relationship_id == null) continue; // untracked dialogs feed todos, not promises
+      const rel = relById.get(c.relationship_id);
+      if (!rel) continue;
+      pushConvo(rel, c.chat_name, c.messages);
+    }
+  } else {
+    // Sweep-cache fallback — shallow (the ~8-message aggregate) but better
+    // than skipping the cycle. Same group-name → rel:<id> binding as
+    // build_queue so DM-only clients are scanned too (audit M3).
+    for (const relationship of relById.values()) {
+      const group = relationship.telegramChat ? relationship.telegramChat.group : null;
+      const tg =
+        (group ? telegramData[group] : null) ||
+        telegramData[`rel:${relationship.id}`] ||
+        null;
+      if (!tg || !tg.matched || !(tg.messages || []).length) continue;
+      pushConvo(relationship, tg.activeChatName || group, tg.messages.slice(0, 8));
+    }
   }
   if (!convos.length) return { inserted: 0, scanned: 0 };
 
   const profile = settings.getUserProfile();
   const payload = convos.map((c, i) =>
-    `[conversation ${i}] relationship: ${c.relationshipName}\n` +
+    `[conversation ${i}] relationship: ${c.relationshipName}` +
+    (c.chatName && c.chatName !== c.relationshipName ? ` — chat: ${c.chatName}` : "") + "\n" +
     c.messages
       .slice()
       .reverse()
@@ -435,7 +502,7 @@ async function extract_promises(telegramData = {}) {
 
   const resp = await module.exports._anthropic_create({
     model: HAIKU_MODEL,
-    max_tokens: 1500,
+    max_tokens: 4000,
     system: _build_promise_system_prompt(profile),
     tools: [_PROMISE_TOOL],
     tool_choice: { type: "tool", name: "record_promises" },

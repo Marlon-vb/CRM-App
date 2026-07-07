@@ -56,6 +56,12 @@ function list_snoozes() {
 }
 
 // Upsert — snoozing an already-snoozed item replaces the old snooze.
+// created_at is deliberately PRESERVED on conflict: the after-reply 7-day
+// failsafe in followups.js reads it, and the cloud publisher re-applies
+// pulled snoozes every cycle — resetting created_at each time silently
+// disabled the failsafe forever (audit M1). A re-snooze with identical
+// values is a no-op; changed values update in place, keeping the original
+// snooze moment as the failsafe anchor.
 function set_snooze(itemKey, mode, until, lastInboundAt) {
   if (!itemKey || typeof itemKey !== "string") {
     throw new Error("itemKey required");
@@ -66,8 +72,7 @@ function set_snooze(itemKey, mode, until, lastInboundAt) {
        VALUES (?, ?, ?, ?)
        ON CONFLICT(user_id, item_key)
        DO UPDATE SET mode = excluded.mode, until = excluded.until,
-                     last_inbound_at = excluded.last_inbound_at,
-                     created_at = CURRENT_TIMESTAMP`
+                     last_inbound_at = excluded.last_inbound_at`
     )
     .run(itemKey, mode === "after_reply" ? "after_reply" : "until",
          until ?? null, lastInboundAt ?? null);
