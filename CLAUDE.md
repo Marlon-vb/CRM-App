@@ -127,6 +127,13 @@ scanners must consult it. Accepting (and any relationship create) calls
 stage-based defaults and `followup_cadences` table are gone. `set_cadence`
 clamps; the db layer throws 400 as backstop.
 
+**Truncate chat text with `strings.safeSlice`, never bare `.slice()`.**
+A slice can cut an emoji's surrogate pair in half; the lone surrogate makes
+the LLM request body invalid JSON and Anthropic 400s the whole extraction
+("no low surrogate in string" — live-hit July 2026). Applies to message
+text, note summaries, and snippets on their way into any LLM payload or
+JSON response.
+
 **Extraction dedupe keys must stay byte-stable.** `source_ref` formats
 (`chatId:msgId:sha1tag(task)`, `granola:gid:sha1tag`) and the
 `_normalize_task` text matching are what stop re-extraction from duplicating

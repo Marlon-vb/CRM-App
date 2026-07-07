@@ -43,6 +43,7 @@ const db = require("./db");
 const detection = require("./detection");
 const settings = require("./settings");
 const { DATA_DIR } = require("./config");
+const { safeSlice } = require("./strings");
 
 // ── sweep progress state ────────────────────────────────────────────
 // In-memory only, single-tenant — same slot contract as PipeWise's
@@ -134,7 +135,7 @@ function _persistLastSweep() {
 function noteOutboundMessage(relationshipId, sent) {
   const msg = {
     id: sent && sent.message_id != null ? sent.message_id : null,
-    text: (sent && sent.text ? String(sent.text) : "").slice(0, 200),
+    text: safeSlice(sent && sent.text ? String(sent.text) : "", 200),
     sender: "me",
     is_me: true,
     date: (sent && sent.date) || new Date().toISOString(),
@@ -543,7 +544,7 @@ async function _extract_message_meta(m, myId) {
 
   return {
     id: m.id,
-    text: (m.message || "[media]").slice(0, 200),
+    text: safeSlice(m.message || "[media]", 200),
     sender: senderName.trim(),
     is_me: isMe,
     date: m.date ? new Date(m.date * 1000).toISOString() : null,

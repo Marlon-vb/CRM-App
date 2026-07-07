@@ -17,6 +17,8 @@
  * truthiness of a match is tested, so `.test()` is used.
  */
 
+const { safeSlice } = require("./strings");
+
 // ── Trigger phrases (multi-language) ───────────────────────────────
 
 // New-conversation qualifying language. Hits trigger a Suggestion (not a
@@ -57,7 +59,7 @@ function detect_new_conversation_signal(messages) {
       if (pattern.test(text)) {
         return {
           matched: true,
-          firstMessage: text.slice(0, 200),
+          firstMessage: safeSlice(text, 200),
           messageCount: messages.length,
         };
       }

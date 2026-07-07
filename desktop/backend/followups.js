@@ -31,6 +31,7 @@
 const db = require("./db");
 const settings = require("./settings");
 const { HAIKU_MODEL } = require("./config");
+const { safeSlice } = require("./strings");
 
 let Anthropic = null;
 let _HAS_ANTHROPIC = false;
@@ -279,7 +280,7 @@ function build_queue({ telegramData = {} } = {}) {
           ...base, key, kind: "recap",
           noteId: recapNote.id,
           noteTitle: recapNote.title,
-          noteSummary: (recapNote.summary || "").slice(0, 2000),
+          noteSummary: safeSlice(recapNote.summary, 2000),
           meetingDate: recapNote.meetingDate,
           why: `Meeting "${recapNote.title}" ${_agoLabel(hoursSinceMeet)} — recap not sent`,
           urgency: 90 + Math.min(40, hoursSinceMeet),
@@ -296,7 +297,7 @@ function build_queue({ telegramData = {} } = {}) {
       if (!_snooze_active(snoozes[key], lastInboundISO, now)) {
         items.push({
           ...base, key, kind: "reply",
-          lastInbound: lastMsg ? { text: (lastMsg.text || "").slice(0, 500), date: lastMsg.date, sender: lastMsg.sender || null } : null,
+          lastInbound: lastMsg ? { text: safeSlice(lastMsg.text, 500), date: lastMsg.date, sender: lastMsg.sender || null } : null,
           why: `${(lastMsg && lastMsg.sender) || "They"} wrote ${_agoLabel(hoursOwed)} — you haven't replied`,
           urgency: 100 + Math.min(60, hoursOwed),
         });
@@ -455,7 +456,7 @@ async function extract_promises(telegramData = {}, conversations = null) {
       is_me: Boolean(m.is_me),
       sender: m.sender || (m.is_me ? "me" : "them"),
       date: m.date || null,
-      text: (m.text || "").slice(0, 400),
+      text: safeSlice(m.text, 400),
     }));
     if (!msgs.some((m) => m.text.trim())) return;
     convos.push({
@@ -566,7 +567,7 @@ async function draft_recap(noteId) {
       ? `Relationship: ${relationship.name}${relationship.company ? ` (${relationship.company})` : ""}\n`
       : "") +
     `Meeting: ${note.title}\nDate: ${note.meetingDate || "recently"}\n\n` +
-    `Granola meeting notes (markdown):\n${(note.summary || "").slice(0, 3500)}\n\n` +
+    `Granola meeting notes (markdown):\n${safeSlice(note.summary, 3500)}\n\n` +
     `Write the short recap message ${profile.nameRef} should send to the ` +
     `counterparty's Telegram group: what was agreed, who does what next, ` +
     `and any dates. Group register ("Hi Team" style opener). Keep it tight — ` +

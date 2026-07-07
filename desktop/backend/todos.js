@@ -21,6 +21,7 @@ const telegram = require("./telegram");
 const granola = require("./granola");
 const settings = require("./settings");
 const { HAIKU_MODEL } = require("./config");
+const { safeSlice } = require("./strings");
 
 // Optional dep — only required for /api/todos/refresh.
 let Anthropic = null;
@@ -300,7 +301,7 @@ function _build_notes_prompt(notes, existing_todos = null, profile = null) {
       .join(", ");
     lines.push(`=== Note ${ni}: ${note.title || "Untitled"} (${date}) ===`);
     if (attendees) lines.push(`Attendees: ${attendees}`);
-    lines.push((note.summary || "").trim().slice(0, 2000));
+    lines.push(safeSlice((note.summary || "").trim(), 2000));
     lines.push("");
   }
   return lines.join("\n");
@@ -432,7 +433,7 @@ function _validate_and_map(raw_todos, conversations) {
       source: "telegram",
       sourceRef: source_ref,
       sourceConversation: conv.chat_name || "",
-      sourceSnippet: snippet.slice(0, 280),
+      sourceSnippet: safeSlice(snippet, 280),
       relationshipId: conv.relationship_id ?? null,
       dueDate: due_date,
       priority: priority,
@@ -460,7 +461,7 @@ function _validate_and_map_notes(raw_todos, notes) {
       source: "granola",
       sourceRef: `granola:${gid}:${task_tag}`,
       sourceConversation: note.title || "Meeting note",
-      sourceSnippet: (note.summary || "").trim().slice(0, 280),
+      sourceSnippet: safeSlice((note.summary || "").trim(), 280),
       relationshipId: note.relationshipId ?? null,
       dueDate: due_date,
       priority: priority,
